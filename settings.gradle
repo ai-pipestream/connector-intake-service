@@ -1,0 +1,51 @@
+pluginManagement {
+    repositories {
+        // Gradle Plugin Portal (proxied through Nexus)
+        maven {
+            url = uri('https://maven.rokkon.com/repository/gradle-plugins/')
+            allowInsecureProtocol = false
+        }
+        gradlePluginPortal()
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'connector-intake-service'
+
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+
+    versionCatalogs {
+        libs {
+            // Import version catalog from published BOM
+            from("io.pipeline:pipeline-bom-catalog:1.0.0-SNAPSHOT")
+        }
+    }
+
+    repositories {
+        // Maven Local for published Pipeline artifacts during development
+        mavenLocal() {
+            content {
+                includeGroupByRegex "io\\.pipeline(\\..*)?"
+            }
+        }
+
+        // Gitea Maven registry (for BOM catalog and internal artifacts)
+        maven {
+            url = uri('https://git.rokkon.com/api/packages/io-pipeline/maven')
+            allowInsecureProtocol = false
+            content {
+                includeGroupByRegex "io\\.pipeline(\\..*)?"
+            }
+        }
+
+        // Nexus as Maven Central mirror (fast local cache on NAS)
+        maven {
+            url = uri('https://maven.rokkon.com/repository/maven-public/')
+            allowInsecureProtocol = false
+        }
+
+        // Fallback to Maven Central
+        mavenCentral()
+    }
+}
