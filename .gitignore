@@ -344,3 +344,14 @@ Temporary Items
 # ---> Additional Log Files
 *.log
 
+.gradle
+build
+.idea/
+.vscode
+.settings
+.iml
+*/build/
+*/out/
+*/dist/
+*/.DS_Store
+*/.vscode/
