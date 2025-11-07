@@ -23,29 +23,47 @@ dependencyResolutionManagement {
     }
 
     repositories {
-        // Maven Local for published Pipeline artifacts during development
-        mavenLocal() {
-            content {
-                includeGroupByRegex "io\\.pipeline(\\..*)?"
+        def isGitHubActions = System.getenv("GITHUB_ACTIONS") == "true"
+
+        if (isGitHubActions) {
+            // GitHub Actions: Use GitHub Packages for io.pipeline artifacts
+            maven {
+                url = uri('https://maven.pkg.github.com/io-pipeline/bom')
+                credentials {
+                    username = System.getenv("GITHUB_ACTOR")
+                    password = System.getenv("GITHUB_TOKEN")
+                }
+                content {
+                    includeGroupByRegex "io\\.pipeline(\\..*)?"
+                }
             }
-        }
-
-        // Gitea Maven registry (for BOM catalog and internal artifacts)
-        maven {
-            url = uri('https://git.rokkon.com/api/packages/io-pipeline/maven')
-            allowInsecureProtocol = false
-            content {
-                includeGroupByRegex "io\\.pipeline(\\..*)?"
+            mavenCentral()
+        } else {
+            // Internal: Use Reposilite/Gitea repos
+            // Maven Local for published Pipeline artifacts during development
+            mavenLocal() {
+                content {
+                    includeGroupByRegex "io\\.pipeline(\\..*)?"
+                }
             }
-        }
 
-        // Nexus as Maven Central mirror (fast local cache on NAS)
-        maven {
-            url = uri('https://maven.rokkon.com/repository/maven-public/')
-            allowInsecureProtocol = false
-        }
+            // Gitea Maven registry (for BOM catalog and internal artifacts)
+            maven {
+                url = uri('https://git.rokkon.com/api/packages/io-pipeline/maven')
+                allowInsecureProtocol = false
+                content {
+                    includeGroupByRegex "io\\.pipeline(\\..*)?"
+                }
+            }
 
-        // Fallback to Maven Central
-        mavenCentral()
+            // Nexus as Maven Central mirror (fast local cache on NAS)
+            maven {
+                url = uri('https://maven.rokkon.com/repository/maven-public/')
+                allowInsecureProtocol = false
+            }
+
+            // Fallback to Maven Central
+            mavenCentral()
+        }
     }
 }

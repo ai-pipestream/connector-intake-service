@@ -133,5 +133,17 @@ publishing {
                 password = project.findProperty("gitea.token") ?: System.getenv("GIT_PAT")
             }
         }
+
+        // Publish to GitHub Packages (when running in GitHub Actions)
+        if (System.getenv("GITHUB_ACTOR") != null) {
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/io-pipeline/connector-intake-service")
+                credentials {
+                    username = System.getenv("GITHUB_ACTOR")
+                    password = System.getenv("GITHUB_TOKEN")
+                }
+            }
+        }
     }
 }
