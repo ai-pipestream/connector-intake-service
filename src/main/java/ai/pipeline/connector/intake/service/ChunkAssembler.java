@@ -1,6 +1,6 @@
-package io.pipeline.connector.intake.service;
+package ai.pipeline.connector.intake.service;
 
-import io.pipeline.connector.intake.StreamingChunk;
+import ai.pipestream.connector.intake.StreamingChunk;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.jboss.logging.Logger;
 

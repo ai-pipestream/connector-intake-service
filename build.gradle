@@ -2,14 +2,19 @@ plugins {
     alias(libs.plugins.java)
     alias(libs.plugins.quarkus)
     alias(libs.plugins.maven.publish)
+    id 'signing'
+    id 'com.gradleup.nmcp' version '1.2.0'
 }
+def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.1.2-SNAPSHOT'
 
 dependencies {
-    // Use published BOM from Maven Local
-    implementation platform('io.pipeline:pipeline-bom:1.0.0-SNAPSHOT')
+    implementation 'io.quarkus:quarkus-container-image-docker'
+    // Import pipeline BOM to align all managed versions
+    implementation platform("ai.pipestream:pipeline-bom:${pipelineBomVersion}")
 
     // Core Quarkus dependencies
-    implementation 'io.quarkus:quarkus-arc'
+    implementation libs.quarkus.arc
+    implementation libs.quarkus.rest
     implementation 'io.quarkus:quarkus-grpc'
     implementation 'io.grpc:grpc-services'  // gRPC health and reflection services
     implementation 'io.quarkus:quarkus-hibernate-orm-panache'
@@ -25,23 +30,26 @@ dependencies {
     implementation 'io.smallrye.reactive:smallrye-mutiny-vertx-consul-client'
 
     // Pipeline libraries (published to Maven Local)
-    implementation 'io.pipeline:grpc-stubs:1.0.0-SNAPSHOT'
-    implementation 'io.pipeline:dynamic-grpc-registration-clients:1.0.0-SNAPSHOT'
-    implementation 'io.pipeline:dynamic-grpc:1.0.0-SNAPSHOT'
-    implementation 'io.pipeline:quarkus-pipeline-devservices:1.0.0-SNAPSHOT'
+
+    testImplementation libs.pipestream.grpc.wiremock
+    // Pipestream libraries - versions managed entirely by the BOM/catalog
+    implementation libs.pipestream.compose.devservices
+    implementation libs.pipestream.grpc.stubs
+    implementation libs.pipestream.commons
+    implementation libs.pipestream.dynamic.grpc
+    implementation libs.pipestream.dynamic.grpc.registration.clients
+
 
     // Utilities
-    implementation 'com.google.guava:guava:33.0.0-jre'  // For RateLimiter
     implementation libs.password4j  // For API key verification
     implementation 'com.google.code.gson:gson:2.10.1'  // For JSON processing
-
+    implementation libs.guava
     // Testing
     testImplementation 'io.quarkus:quarkus-junit5'
-    testImplementation 'io.pipeline:grpc-wiremock:1.0.0-SNAPSHOT'
     testImplementation 'io.rest-assured:rest-assured'
 }
 
-group = 'io.pipeline'
+group = 'ai.pipestream'
 version = '1.0.0-SNAPSHOT'
 
 java {
@@ -82,7 +90,7 @@ publishing {
             pom { pom ->
                 name.set('Connector Intake Service')
                 description.set('Intake and processing service for connector data in the Pipeline platform')
-                url.set('https://github.com/io-pipeline/connector-intake-service')
+                url.set('https://github.com/ai-pipestream/connector-intake-service')
 
                 licenses {
                     license {
@@ -100,9 +108,9 @@ publishing {
                 }
 
                 scm {
-                    connection.set('scm:git:git://github.com/io-pipeline/connector-intake-service.git')
-                    developerConnection.set('scm:git:ssh://github.com/io-pipeline/connector-intake-service.git')
-                    url.set('https://github.com/io-pipeline/connector-intake-service')
+                    connection.set('scm:git:git://github.com/ai-pipestream/connector-intake-service.git')
+                    developerConnection.set('scm:git:ssh://github.com/ai-pipestream/connector-intake-service.git')
+                    url.set('https://github.com/ai-pipestream/connector-intake-service')
                 }
             }
         }
@@ -127,7 +135,7 @@ publishing {
         // Publish to Gitea Maven registry (backup)
         maven {
             name = "Gitea"
-            url = uri("https://git.rokkon.com/api/packages/io-pipeline/maven")
+            url = uri("https://git.rokkon.com/api/packages/ai-pipestream/maven")
             credentials {
                 username = project.findProperty("gitea.user") ?: System.getenv("GIT_USER") ?: "krickert"
                 password = project.findProperty("gitea.token") ?: System.getenv("GIT_PAT")
@@ -138,7 +146,7 @@ publishing {
         if (System.getenv("GITHUB_ACTOR") != null) {
             maven {
                 name = "GitHubPackages"
-                url = uri("https://maven.pkg.github.com/io-pipeline/connector-intake-service")
+                url = uri("https://maven.pkg.github.com/ai-pipestream/connector-intake-service")
                 credentials {
                     username = System.getenv("GITHUB_ACTOR")
                     password = System.getenv("GITHUB_TOKEN")

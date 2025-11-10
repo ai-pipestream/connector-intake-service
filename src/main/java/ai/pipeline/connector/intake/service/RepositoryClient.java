@@ -1,12 +1,12 @@
-package io.pipeline.connector.intake.service;
+package ai.pipeline.connector.intake.service;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.BytesValue;
 import com.google.protobuf.ByteString;
 import io.grpc.Status;
-import io.pipeline.dynamic.grpc.client.DynamicGrpcClientFactory;
-import io.pipeline.repository.filesystem.CreateNodeRequest;
-import io.pipeline.repository.filesystem.Node;
+import ai.pipestream.dynamic.grpc.client.DynamicGrpcClientFactory;
+import ai.pipestream.repository.filesystem.CreateNodeRequest;
+import ai.pipestream.repository.filesystem.Node;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;

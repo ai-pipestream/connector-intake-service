@@ -1,4 +1,4 @@
-package io.pipeline.connector.util;
+package ai.pipeline.connector.util;
 
 import com.password4j.Argon2Function;
 import com.password4j.Hash;

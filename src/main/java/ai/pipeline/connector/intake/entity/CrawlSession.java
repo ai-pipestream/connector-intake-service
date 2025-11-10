@@ -1,4 +1,4 @@
-package io.pipeline.connector.intake.entity;
+package ai.pipeline.connector.intake.entity;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.*;

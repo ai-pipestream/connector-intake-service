@@ -1,10 +1,10 @@
-package io.pipeline.connector.intake.service;
+package ai.pipeline.connector.intake.service;
 
 import io.grpc.Status;
-import io.pipeline.connector.intake.ConnectorConfig;
-import io.pipeline.connector.intake.ConnectorRegistration;
-import io.pipeline.dynamic.grpc.client.DynamicGrpcClientFactory;
-import io.pipeline.repository.account.GetAccountRequest;
+import ai.pipestream.connector.intake.ConnectorConfig;
+import ai.pipestream.connector.intake.ConnectorRegistration;
+import ai.pipestream.dynamic.grpc.client.DynamicGrpcClientFactory;
+import ai.pipestream.repository.account.GetAccountRequest;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -53,7 +53,7 @@ public class ConnectorValidationService {
 
         return grpcClientFactory.getConnectorAdminServiceClient(CONNECTOR_SERVICE_NAME)
             .flatMap(stub -> stub.validateApiKey(
-                io.pipeline.connector.intake.ValidateApiKeyRequest.newBuilder()
+                ai.pipestream.connector.intake.ValidateApiKeyRequest.newBuilder()
                     .setConnectorId(connectorId)
                     .setApiKey(apiKey)
                     .build()

@@ -1,11 +1,11 @@
-package io.pipeline.connector.intake.service;
+package ai.pipeline.connector.intake.service;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import io.grpc.Status;
-import io.pipeline.connector.intake.*;
-import io.pipeline.connector.intake.entity.CrawlSession;
-import io.pipeline.connector.intake.repository.CrawlSessionRepository;
+import ai.pipestream.connector.intake.*;
+import ai.pipeline.connector.intake.entity.CrawlSession;
+import ai.pipeline.connector.intake.repository.CrawlSessionRepository;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;

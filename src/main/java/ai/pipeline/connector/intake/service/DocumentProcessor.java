@@ -1,11 +1,11 @@
-package io.pipeline.connector.intake.service;
+package ai.pipeline.connector.intake.service;
 
 import com.google.common.util.concurrent.RateLimiter;
-import io.pipeline.connector.intake.ConnectorConfig;
-import io.pipeline.connector.intake.DocumentData;
-import io.pipeline.connector.intake.DocumentResponse;
-import io.pipeline.connector.intake.entity.CrawlSession;
-import io.pipeline.connector.intake.repository.CrawlDocumentRepository;
+import ai.pipestream.connector.intake.ConnectorConfig;
+import ai.pipestream.connector.intake.DocumentData;
+import ai.pipestream.connector.intake.DocumentResponse;
+import ai.pipeline.connector.intake.entity.CrawlSession;
+import ai.pipeline.connector.intake.repository.CrawlDocumentRepository;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.infrastructure.Infrastructure;
 import jakarta.enterprise.context.ApplicationScoped;

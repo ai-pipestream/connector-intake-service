@@ -1,18 +1,15 @@
-package io.pipeline.connector.intake.service;
+package ai.pipeline.connector.intake.service;
 
-import io.pipeline.connector.intake.StreamingChunk;
-import io.pipeline.dynamic.grpc.client.DynamicGrpcClientFactory;
-import io.pipeline.repository.filesystem.upload.*;
-import io.smallrye.mutiny.Multi;
+import ai.pipestream.connector.intake.StreamingChunk;
+import ai.pipestream.dynamic.grpc.client.DynamicGrpcClientFactory;
+import ai.pipestream.repository.filesystem.upload.*;
 import io.smallrye.mutiny.Uni;
-import io.smallrye.mutiny.subscription.UniEmitter;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
 import java.security.MessageDigest;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -241,7 +238,7 @@ public class StreamingChunkProcessor {
      * Wait for upload completion and return final result.
      */
     private Uni<ProcessingResult> waitForUploadCompletion(StreamingSession session, 
-                                                          io.pipeline.connector.intake.BlobMetadata footer) {
+                                                          ai.pipestream.connector.intake.BlobMetadata footer) {
         return Uni.createFrom().emitter(emitter -> {
             // Poll until upload is complete
             new Thread(() -> {

@@ -1,4 +1,4 @@
-package io.pipeline.connector.intake.util;
+package ai.pipeline.connector.intake.util;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;

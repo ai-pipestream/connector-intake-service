@@ -1,6 +1,6 @@
-package io.pipeline.connector.intake.repository;
+package ai.pipeline.connector.intake.repository;
 
-import io.pipeline.connector.intake.entity.CrawlDocument;
+import ai.pipeline.connector.intake.entity.CrawlDocument;
 import io.quarkus.hibernate.orm.panache.PanacheRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;

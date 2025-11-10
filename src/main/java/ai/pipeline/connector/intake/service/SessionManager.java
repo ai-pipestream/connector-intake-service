@@ -1,19 +1,15 @@
-package io.pipeline.connector.intake.service;
+package ai.pipeline.connector.intake.service;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import io.pipeline.connector.intake.entity.CrawlSession;
-import io.pipeline.connector.intake.repository.CrawlSessionRepository;
+import ai.pipeline.connector.intake.entity.CrawlSession;
+import ai.pipeline.connector.intake.repository.CrawlSessionRepository;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.infrastructure.Infrastructure;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
 import org.jboss.logging.Logger;
 
-import java.time.OffsetDateTime;
 import java.util.UUID;
 
 /**
