@@ -15,7 +15,7 @@ dependencies {
     // Core Quarkus dependencies
     implementation libs.quarkus.arc
     implementation libs.quarkus.rest
-    implementation 'io.quarkus:quarkus-grpc'
+    implementation libs.quarkus.grpc
     implementation 'io.grpc:grpc-services'  // gRPC health and reflection services
     implementation 'io.quarkus:quarkus-hibernate-orm-panache'
     implementation 'io.quarkus:quarkus-jdbc-mysql'
@@ -102,8 +102,7 @@ publishing {
                 developers {
                     developer {
                         id.set('krickert')
-                        email.set('krickert@rokkon.com')
-                        name.set('Pipeline Engine Team')
+                        name.set('Pipestream Platform Team')
                     }
                 }
 
@@ -120,36 +119,18 @@ publishing {
         // Publish to Maven Local for development
         mavenLocal()
 
-        // Publish to Reposilite (primary artifact repository)
-        maven {
-            name = "Reposilite"
-            url = uri(version.toString().endsWith('-SNAPSHOT')
-                ? "https://maven.rokkon.com/snapshots"
-                : "https://maven.rokkon.com/releases")
-            credentials {
-                username = project.findProperty("reposilite.user") ?: System.getenv("REPOS_USER") ?: "admin"
-                password = project.findProperty("reposilite.token") ?: System.getenv("REPOS_PAT")
-            }
-        }
-
-        // Publish to Gitea Maven registry (backup)
-        maven {
-            name = "Gitea"
-            url = uri("https://git.rokkon.com/api/packages/ai-pipestream/maven")
-            credentials {
-                username = project.findProperty("gitea.user") ?: System.getenv("GIT_USER") ?: "krickert"
-                password = project.findProperty("gitea.token") ?: System.getenv("GIT_PAT")
-            }
-        }
-
-        // Publish to GitHub Packages (when running in GitHub Actions)
-        if (System.getenv("GITHUB_ACTOR") != null) {
+        // Publish to GitHub Packages when credentials are available (e.g. CI)
+        def githubToken = providers.environmentVariable("GITHUB_TOKEN")
+        if (githubToken.isPresent()) {
             maven {
                 name = "GitHubPackages"
                 url = uri("https://maven.pkg.github.com/ai-pipestream/connector-intake-service")
                 credentials {
-                    username = System.getenv("GITHUB_ACTOR")
-                    password = System.getenv("GITHUB_TOKEN")
+                    username = providers.environmentVariable("GITHUB_ACTOR").getOrElse("github-actions")
+                    password = githubToken.get()
+                }
+                mavenContent {
+                    releasesOnly()
                 }
             }
         }
