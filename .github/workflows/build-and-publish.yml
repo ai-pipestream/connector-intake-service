@@ -84,6 +84,6 @@ jobs:
             -Dquarkus.container-image.build=true \
             -Dquarkus.container-image.push=true \
             -Dquarkus.container-image.registry=ghcr.io \
-            -Dquarkus.container-image.group=io-pipeline \
+            -Dquarkus.container-image.group=${{ github.repository_owner }} \
             -Dquarkus.container-image.additional-tags=${{ github.sha }} \
             --no-daemon
