@@ -50,7 +50,7 @@ dependencies {
 }
 
 group = 'ai.pipestream'
-version = '1.0.0-SNAPSHOT'
+version = "${pipelineBomVersion}"
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21
