@@ -7,19 +7,19 @@ pluginManagement {
 rootProject.name = 'connector-intake-service'
 
 dependencyResolutionManagement {
-//    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
-
     versionCatalogs {
         libs {
             // Import version catalog from published BOM
-            // Available on both private Reposilite and public GitHub Packages
-            from("ai.pipestream:pipeline-bom-catalog:0.1.2-SNAPSHOT")
+            from("ai.pipestream:pipeline-bom-catalog:0.2.2")
         }
     }
 
     repositories {
-        // Maven Local for published Pipeline artifacts during development
+        // Prefer Maven Central but allow locally published releases for development
         mavenLocal {
+            mavenContent {
+                releasesOnly()
+            }
             content {
                 includeGroupByRegex "ai\\.pipestream(\\..*)?"
             }
@@ -33,6 +33,21 @@ dependencyResolutionManagement {
             url = uri('https://central.sonatype.com/repository/maven-snapshots/')
             mavenContent {
                 snapshotsOnly()
+            }
+        }
+
+        // GitHub Packages for ai.pipestream catalog and dependencies
+        def githubToken = providers.environmentVariable("GITHUB_TOKEN")
+        if (githubToken.isPresent()) {
+            maven {
+                url = uri("https://maven.pkg.github.com/ai-pipestream/bom")
+                credentials {
+                    username = providers.environmentVariable("GITHUB_ACTOR").getOrElse("github-actions")
+                    password = githubToken.get()
+                }
+                content {
+                    includeGroupByRegex "ai\\.pipestream(\\..*)?"
+                }
             }
         }
 
