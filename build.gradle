@@ -60,6 +60,9 @@ dependencies {
     implementation libs.password4j  // For API key verification
     implementation 'com.google.code.gson:gson:2.10.1'  // For JSON processing
     implementation libs.guava
+    
+    // Redis for async chunk storage
+    implementation 'io.quarkus:quarkus-redis-client'
     // Testing
     testImplementation 'io.quarkus:quarkus-junit5'
     testImplementation 'io.rest-assured:rest-assured'
