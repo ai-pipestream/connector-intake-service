@@ -1,0 +1,19 @@
+{
+  "request": {
+    "urlPath": "/ai.pipestream.repository.filesystem.upload.NodeUploadService/GetUploadStatus",
+    "method": "POST",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": "$.node_id"
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "body": "{\n  \"node_id\": \"{{jsonPath request.body '$.node_id'}}\",\n  \"state\": \"UPLOAD_STATE_UPLOADING\",\n  \"bytes_uploaded\": 0,\n  \"total_bytes\": 0,\n  \"updated_at_epoch_ms\": {{now.millis}}\n}",
+    "headers": {
+      "grpc-status-name": "OK"
+    }
+  }
+}
+

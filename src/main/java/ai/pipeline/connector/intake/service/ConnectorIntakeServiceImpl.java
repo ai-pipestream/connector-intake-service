@@ -536,28 +536,13 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
     private StartChunkedUploadResponse createChunkedUploadResponse(
             String uploadId, ConnectorConfig config, StartChunkedUploadRequest request, String sessionId) {
         
-        // Store upload metadata with session and config info
-        AsyncChunkStorageService.UploadMetadata metadata = 
-            new AsyncChunkStorageService.UploadMetadata(uploadId);
-        metadata.expectedChunkCount = request.getExpectedChunkCount();
-        metadata.expectedSizeBytes = request.getExpectedSizeBytes();
-        metadata.sessionId = sessionId;
-        metadata.connectorId = request.getConnectorId();
-        metadata.apiKey = request.getApiKey();  // Store API key for reassembly
-        metadata.accountId = config.getAccountId();
-        metadata.filename = request.getFilename();
-        metadata.path = request.getPath();
-        metadata.mimeType = request.getMimeType();
-        metadata.sourceMetadata.putAll(request.getSourceMetadataMap());
-        asyncChunkStorage.storeUploadMetadata(uploadId, metadata);
-
-        String redisKeyPrefix = uploadId;
+        // TODO: In Step 4, this will call repository-service.InitiateUpload()
+        // For now, return response without Redis
         
         return StartChunkedUploadResponse.newBuilder()
             .setSuccess(true)
             .setUploadId(uploadId)
             .setMessage("Chunked upload started")
-            .setRedisKeyPrefix(redisKeyPrefix)
             .setMaxChunkSize(10 * 1024 * 1024) // 10MB recommended max
             .setTimeoutSeconds(3600) // 1 hour timeout
             .build();
@@ -571,48 +556,17 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
         LOG.debugf("UploadAsyncChunk: uploadId=%s, chunkNumber=%d, size=%d", 
             request.getUploadId(), request.getChunkNumber(), request.getChunkData().size());
 
-        // Store chunk in Redis
-        return asyncChunkStorage.storeChunk(
-            request.getUploadId(),
-            request.getChunkNumber(),
-            request.getChunkData().toByteArray()
-        )
-        .map(ignored -> {
-            String redisKey = request.getUploadId() + ":chunk:" + request.getChunkNumber();
-            
-            // Update metadata
-            AsyncChunkStorageService.UploadMetadata metadata = 
-                asyncChunkStorage.getUploadMetadata(request.getUploadId());
-            if (metadata != null) {
-                metadata.chunkTimestamps.put(request.getChunkNumber(), System.currentTimeMillis());
-            }
-            
-            return AsyncChunkedUploadChunkResponse.newBuilder()
+        // TODO: In Step 4, this will call repository-service.UploadChunk()
+        // For now, return success response without Redis
+        
+        return Uni.createFrom().item(
+            AsyncChunkedUploadChunkResponse.newBuilder()
                 .setSuccess(true)
                 .setUploadId(request.getUploadId())
                 .setChunkNumber(request.getChunkNumber())
-                .setMessage("Chunk stored successfully")
-                .setRedisKey(redisKey)
-                .build();
-        })
-        .onFailure().recoverWithItem(throwable -> {
-            LOG.errorf(throwable, "Failed to upload chunk: uploadId=%s, chunkNumber=%d", 
-                request.getUploadId(), request.getChunkNumber());
-            
-            // Record error in metadata
-            AsyncChunkStorageService.UploadMetadata metadata = 
-                asyncChunkStorage.getUploadMetadata(request.getUploadId());
-            if (metadata != null) {
-                metadata.chunkErrors.put(request.getChunkNumber(), throwable.getMessage());
-            }
-            
-            return AsyncChunkedUploadChunkResponse.newBuilder()
-                .setSuccess(false)
-                .setUploadId(request.getUploadId())
-                .setChunkNumber(request.getChunkNumber())
-                .setMessage("Failed to store chunk: " + throwable.getMessage())
-                .build();
-        });
+                .setMessage("Chunk queued successfully")
+                .build()
+        );
     }
 
     /**
@@ -623,169 +577,20 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
         LOG.infof("CompleteChunkedUpload: uploadId=%s, totalChunks=%d, sha256=%s", 
             request.getUploadId(), request.getTotalChunksSent(), request.getFinalSha256());
 
-        AsyncChunkStorageService.UploadMetadata metadata = 
-            asyncChunkStorage.getUploadMetadata(request.getUploadId());
+        // TODO: In Step 4, this will call repository-service.GetUploadStatus() and handle completion
+        // For now, return a stub response
         
-        if (metadata == null) {
-            return Uni.createFrom().item(
-                CompleteChunkedUploadResponse.newBuilder()
-                    .setSuccess(false)
-                    .setUploadId(request.getUploadId())
-                    .setMessage("Upload not found")
-                    .build()
-            );
-        }
-
-        // Check which chunks are missing
-        return asyncChunkStorage.getReceivedChunks(request.getUploadId())
-            .flatMap(receivedChunks -> {
-                Set<Integer> missingChunks = new HashSet<>();
-                Set<Integer> erroredChunks = new HashSet<>();
-                Set<Integer> timeoutChunks = new HashSet<>();
-                
-                // Determine missing chunks
-                for (int i = 0; i < request.getTotalChunksSent(); i++) {
-                    if (!receivedChunks.contains(i)) {
-                        // Check if it errored
-                        if (metadata.chunkErrors.containsKey(i)) {
-                            erroredChunks.add(i);
-                        } else {
-                            // Check if it timed out (older than 5 minutes)
-                            Long timestamp = metadata.chunkTimestamps.get(i);
-                            if (timestamp == null || (System.currentTimeMillis() - timestamp) > 5 * 60 * 1000) {
-                                timeoutChunks.add(i);
-                            } else {
-                                missingChunks.add(i);
-                            }
-                        }
-                    }
-                }
-                
-                // If all chunks are present, reassemble and store
-                if (missingChunks.isEmpty() && erroredChunks.isEmpty() && timeoutChunks.isEmpty()) {
-                    return reassembleAndStoreChunks(request, metadata, receivedChunks);
-                } else {
-                    // Return status with missing/errored/timeout chunks
-                    CompleteChunkedUploadResponse.Builder response = CompleteChunkedUploadResponse.newBuilder()
-                        .setSuccess(false)
-                        .setUploadId(request.getUploadId())
-                        .setMessage("Not all chunks received")
-                        .addAllMissingChunks(missingChunks)
-                        .addAllErroredChunks(erroredChunks)
-                        .addAllTimeoutChunks(timeoutChunks);
-                    
-                    // Chunks that need resending are errored or timeout chunks
-                    Set<Integer> needsResend = new HashSet<>(erroredChunks);
-                    needsResend.addAll(timeoutChunks);
-                    response.addAllNeedsResendChunks(needsResend);
-                    
-                    return Uni.createFrom().item(response.build());
-                }
-            });
+        return Uni.createFrom().item(
+            CompleteChunkedUploadResponse.newBuilder()
+                .setSuccess(false)
+                .setUploadId(request.getUploadId())
+                .setMessage("Not yet implemented - will call repository-service in Step 4")
+                .build()
+        );
     }
 
-    private Uni<CompleteChunkedUploadResponse> reassembleAndStoreChunks(
-            CompleteChunkedUploadRequest request,
-            AsyncChunkStorageService.UploadMetadata metadata,
-            Set<Integer> receivedChunks) {
-        
-        LOG.infof("Reassembling chunks: uploadId=%s, chunkCount=%d", 
-            request.getUploadId(), receivedChunks.size());
-        
-        // Get session and config
-        return sessionManager.getSession(metadata.sessionId)
-            .flatMap(session -> {
-                return validationService.validateConnector(metadata.connectorId, metadata.apiKey)
-                    .flatMap(config -> {
-                        // Retrieve all chunks from Redis in order
-                        List<Integer> sortedChunks = new ArrayList<>(receivedChunks);
-                        Collections.sort(sortedChunks);
-                        
-                        // Retrieve chunks sequentially
-                        return retrieveChunksSequentially(request.getUploadId(), sortedChunks)
-                            .flatMap(reassembledData -> {
-                                // Calculate SHA256
-                                return calculateSHA256Async(reassembledData)
-                                    .flatMap(sha256 -> {
-                                        // Verify SHA256 matches
-                                        if (!sha256.equals(request.getFinalSha256())) {
-                                            LOG.warnf("SHA256 mismatch: expected=%s, calculated=%s", 
-                                                request.getFinalSha256(), sha256);
-                                            // Continue anyway, but log warning
-                                        }
-                                        
-                                        // Build DocumentData
-                                        DocumentData documentData = DocumentData.newBuilder()
-                                            .setSourceId(metadata.uploadId)
-                                            .setFilename(metadata.filename)
-                                            .setPath(metadata.path)
-                                            .setMimeType(metadata.mimeType)
-                                            .setSizeBytes(reassembledData.length)
-                                            .putAllSourceMetadata(metadata.sourceMetadata)
-                                            .setRawData(com.google.protobuf.ByteString.copyFrom(reassembledData))
-                                            .setChecksum(sha256)
-                                            .setChecksumType("SHA256")
-                                            .build();
-                                        
-                                        // Process document
-                                        return documentProcessor.processDocument(session, config, documentData)
-                                            .flatMap(documentResponse -> {
-                                                // Cleanup Redis chunks
-                                                return asyncChunkStorage.deleteUpload(request.getUploadId(), sortedChunks.size() - 1)
-                                                    .map(ignored -> {
-                                                        return CompleteChunkedUploadResponse.newBuilder()
-                                                            .setSuccess(documentResponse.getSuccess())
-                                                            .setUploadId(request.getUploadId())
-                                                            .setDocumentId(documentResponse.getDocumentId())
-                                                            .setS3Key(documentResponse.getS3Key())
-                                                            .setMessage("Chunks reassembled and stored successfully")
-                                                            .setFinalSha256(sha256)
-                                                            .setFinalSizeBytes(reassembledData.length)
-                                                            .build();
-                                                    });
-                                            });
-                                    });
-                            });
-                    });
-            })
-            .onFailure().recoverWithItem(throwable -> {
-                LOG.errorf(throwable, "Failed to reassemble chunks: uploadId=%s", request.getUploadId());
-                return CompleteChunkedUploadResponse.newBuilder()
-                    .setSuccess(false)
-                    .setUploadId(request.getUploadId())
-                    .setMessage("Failed to reassemble chunks: " + throwable.getMessage())
-                    .build();
-            });
-    }
-
-    private Uni<byte[]> retrieveChunksSequentially(String uploadId, List<Integer> chunkNumbers) {
-        if (chunkNumbers.isEmpty()) {
-            return Uni.createFrom().item(new byte[0]);
-        }
-        
-        // Retrieve chunks in parallel, then sort
-        List<Uni<byte[]>> chunkUnis = chunkNumbers.stream()
-            .map(chunkNumber -> asyncChunkStorage.getChunk(uploadId, chunkNumber))
-            .collect(Collectors.toList());
-        
-        return Uni.combine().all().unis(chunkUnis)
-            .combinedWith(chunks -> {
-                // Combine all chunks into single byte array
-                int totalSize = chunks.stream()
-                    .mapToInt(chunk -> ((byte[]) chunk).length)
-                    .sum();
-                
-                byte[] result = new byte[totalSize];
-                int offset = 0;
-                for (Object chunk : chunks) {
-                    byte[] chunkBytes = (byte[]) chunk;
-                    System.arraycopy(chunkBytes, 0, result, offset, chunkBytes.length);
-                    offset += chunkBytes.length;
-                }
-                
-                return result;
-            });
-    }
+    // Removed reassembleAndStoreChunks and retrieveChunksSequentially methods
+    // These will be replaced with repository-service calls in Step 4
 
     private Uni<String> calculateSHA256Async(byte[] content) {
         return Uni.createFrom().completionStage(
@@ -809,9 +614,6 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
             }, Infrastructure.getDefaultWorkerPool())
         );
     }
-
-    @Inject
-    AsyncChunkStorageService asyncChunkStorage;
 
     /**
      * Internal class to track session state per stream.

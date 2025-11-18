@@ -1,0 +1,25 @@
+{
+  "request": {
+    "urlPath": "/ai.pipestream.repository.filesystem.upload.NodeUploadService/InitiateUpload",
+    "method": "POST",
+    "bodyPatterns": [
+      {
+        "matchesJsonPath": "$.drive"
+      },
+      {
+        "matchesJsonPath": "$.name"
+      },
+      {
+        "matchesJsonPath": "$.expected_size"
+      }
+    ]
+  },
+  "response": {
+    "status": 200,
+    "body": "{\n  \"node_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"upload_id\": \"upload-abc123\",\n  \"state\": \"UPLOAD_STATE_PENDING\",\n  \"created_at_epoch_ms\": {{now.millis}},\n  \"is_update\": false\n}",
+    "headers": {
+      "grpc-status-name": "OK"
+    }
+  }
+}
+

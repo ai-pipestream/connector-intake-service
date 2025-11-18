@@ -3,12 +3,7 @@
 # Connector Intake Service Startup Script
 # Port: 38108 (Core Service)
 # This script helps start the connector intake service in development mode
-# with proper environment variable detection, helper bootstrapping, and instance management.
-#
-# Bootstrap Design: Like Gradle Wrapper
-# - Automatically downloads helper scripts from GitHub if not available locally
-# - Works OOTB on Windows/Mac/Linux right after checkout
-# - No manual dev-assets setup required
+# with proper environment variable detection and instance management.
 
 set -e
 
@@ -34,76 +29,22 @@ bootstrap_helpers() {
   # Check if already bootstrapped
   if [ -f "$HELPERS_DIR/scripts/shared-utils.sh" ]; then
     DEV_ASSETS_LOCATION="$HELPERS_DIR"
-    echo "ℹ️  Using cached helper scripts from $HELPERS_DIR"
     return 0
   fi
 
   # Bootstrap from GitHub
   echo "🔄 Bootstrapping helper scripts from GitHub..."
-  echo "   Downloading from: $DEV_ASSETS_REPO/scripts/shared-utils.sh"
   mkdir -p "$HELPERS_DIR/scripts"
-
-  # Download shared-utils.sh
-  if curl -fsSL "$DEV_ASSETS_REPO/scripts/shared-utils.sh" -o "$HELPERS_DIR/scripts/shared-utils.sh"; then
-    chmod +x "$HELPERS_DIR/scripts/shared-utils.sh"
-    echo "✓ Downloaded helper scripts to $HELPERS_DIR/scripts/"
-    DEV_ASSETS_LOCATION="$HELPERS_DIR"
-  else
-    echo "⚠️  Could not download from dev-assets repo (network issue or repo not found)"
-    echo "   Creating minimal fallback helpers..."
-    create_minimal_helpers
-    DEV_ASSETS_LOCATION="$HELPERS_DIR"
+  
+  if ! curl -fsSL "$DEV_ASSETS_REPO/scripts/shared-utils.sh" -o "$HELPERS_DIR/scripts/shared-utils.sh"; then
+    echo "❌ ERROR: Could not download helper scripts from GitHub"
+    echo "   Please check your network connection and try again"
+    exit 1
   fi
-}
-
-create_minimal_helpers() {
-  # Create minimal shared-utils.sh with essential functions
-  mkdir -p "$HELPERS_DIR/scripts"
-  cat > "$HELPERS_DIR/scripts/shared-utils.sh" << 'EOF'
-#!/bin/bash
-# Minimal fallback helper functions
-
-check_dependencies() {
-  for cmd in "$@"; do
-    command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: $cmd is required but not installed"; exit 1; }
-  done
-}
-
-check_port() {
-  lsof -i ":$1" >/dev/null 2>&1
-}
-
-kill_process_on_port() {
-  local port=$1
-  local pid
-  pid=$(lsof -t -i ":$port" 2>/dev/null)
-  [ -n "$pid" ] && kill "$pid" 2>/dev/null
-}
-
-validate_project_structure() {
-  for file in "$@"; do
-    [ ! -f "$file" ] && { echo "ERROR: Expected file not found: $file"; exit 1; }
-  done
-}
-
-print_status() {
-  local level=$1
-  shift
-  case "$level" in
-    header) echo "==========================================" ;;
-    info) echo "ℹ️  $*" ;;
-    warning) echo "⚠️  $*" ;;
-    error) echo "❌ $*" ;;
-  esac
-}
-
-set_registration_host() {
-  local service_name=$1
-  local env_var=$2
-  export $env_var="${!env_var:-localhost}"
-}
-EOF
+  
   chmod +x "$HELPERS_DIR/scripts/shared-utils.sh"
+  DEV_ASSETS_LOCATION="$HELPERS_DIR"
+  echo "✓ Helper scripts downloaded to $HELPERS_DIR"
 }
 
 # Bootstrap the helpers
@@ -111,18 +52,15 @@ bootstrap_helpers
 
 # Source shared utilities
 if [ -f "$DEV_ASSETS_LOCATION/scripts/shared-utils.sh" ]; then
-  # shellcheck disable=SC1090
   source "$DEV_ASSETS_LOCATION/scripts/shared-utils.sh"
 else
-  echo "ERROR: Could not find shared-utils.sh at $DEV_ASSETS_LOCATION/scripts/shared-utils.sh"
-  echo "Bootstrap may have failed. Check network connection."
+  echo "❌ ERROR: Could not find shared-utils.sh at $DEV_ASSETS_LOCATION/scripts/shared-utils.sh"
   exit 1
 fi
 
 # Verify functions are available
 if ! type check_dependencies >/dev/null 2>&1; then
-  echo "ERROR: Helper functions not loaded properly"
-  echo "DEV_ASSETS_LOCATION: $DEV_ASSETS_LOCATION"
+  echo "❌ ERROR: Helper functions not loaded properly"
   exit 1
 fi
 
@@ -150,7 +88,6 @@ export PIPELINE_CONSUL_PORT="${PIPELINE_CONSUL_PORT:-8500}"
 print_status "header" "Starting $SERVICE_NAME"
 print_status "info" "Port: $SERVICE_PORT"
 print_status "info" "Description: $DESCRIPTION"
-print_status "info" "Dev Assets Location: $DEV_ASSETS_LOCATION"
 print_status "info" "Configuration:"
 echo "  Service Host: $CONNECTOR_INTAKE_SERVICE_HOST"
 echo "  HTTP/gRPC Port: $QUARKUS_HTTP_PORT"
@@ -160,20 +97,20 @@ echo
 
 # Check if already running and offer to kill
 if check_port "$SERVICE_PORT" "$SERVICE_NAME"; then
-  print_status "warning" "$SERVICE_NAME is already running on port $SERVICE_PORT."
-  read -p "Would you like to kill the existing process and restart? (y/N) " -r response
-  if [[ "$response" =~ ^[Yy]$ ]]; then
-    kill_process_on_port "$SERVICE_PORT" "$SERVICE_NAME"
-  else
-    print_status "info" "Cancelled by user."
-    exit 0
-  fi
+    print_status "warning" "$SERVICE_NAME is already running on port $SERVICE_PORT."
+    read -p "Would you like to kill the existing process and restart? (y/N) " -r response
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        kill_process_on_port "$SERVICE_PORT" "$SERVICE_NAME"
+    else
+        print_status "info" "Cancelled by user."
+        exit 0
+    fi
 fi
 
 print_status "info" "Starting $SERVICE_NAME in Quarkus dev mode..."
-print_status "info" "DevServices will automatically start shared infrastructure (MySQL, Kafka, Consul, etc.)"
+print_status "info" "DevServices will automatically start: MySQL, Kafka, Consul, etc."
 print_status "info" "Press Ctrl+C to stop"
 echo
 
 # Start using the app's own gradlew
-./gradlew quarkusDev -Dservice.registration.host="$CONNECTOR_INTAKE_SERVICE_HOST"
+./gradlew quarkusDev
