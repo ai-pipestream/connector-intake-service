@@ -2,7 +2,10 @@ package ai.pipeline.connector.intake;
 
 import ai.pipestream.connector.intake.*;
 import ai.pipestream.grpc.wiremock.AccountManagerMock;
+import ai.pipestream.grpc.wiremock.ConnectorIntakeTestResource;
+import ai.pipestream.grpc.wiremock.ConnectorServiceMock;
 import ai.pipestream.grpc.wiremock.InjectWireMock;
+import ai.pipestream.grpc.wiremock.RepositoryServiceMock;
 import ai.pipestream.repository.filesystem.upload.UploadState;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import io.grpc.ManagedChannel;
@@ -18,17 +21,17 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration test for connector-intake-service chunked upload flow with mocked repository-service.
+ * Integration test for connector-intake-service chunked upload flow with mocked external services.
  * <p>
  * This test verifies that:
  * 1. StartChunkedUpload calls repository-service.InitiateUpload
  * 2. UploadAsyncChunk calls repository-service.UploadChunk (multiple chunks)
  * 3. CompleteChunkedUpload calls repository-service.GetUploadStatus
  * <p>
- * All repository-service calls are mocked via WireMock using RepositoryServiceMock.
+ * All external service calls are mocked via WireMock using mocks from grpc-wiremock library.
  */
 @QuarkusTest
-@QuarkusTestResource(RepositoryServiceMockTestResource.class)
+@QuarkusTestResource(ConnectorIntakeTestResource.class)
 public class ConnectorIntakeRepositoryIntegrationTest {
 
     private static final String TEST_CONNECTOR_ID = "test-connector-123";

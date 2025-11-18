@@ -47,7 +47,8 @@ dependencies {
 
     // Pipeline libraries (published to Maven Local)
 
-    testImplementation libs.pipestream.grpc.wiremock
+    // Use 0.2.4 for now to get latest mocks (will be in next BOM version)
+    testImplementation 'ai.pipestream:grpc-wiremock:0.2.4'
     // Pipestream libraries - versions managed entirely by the BOM/catalog
     implementation libs.pipestream.compose.devservices
     implementation libs.pipestream.grpc.stubs
