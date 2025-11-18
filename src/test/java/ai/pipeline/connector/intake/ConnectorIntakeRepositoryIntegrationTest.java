@@ -1,6 +1,7 @@
 package ai.pipeline.connector.intake;
 
 import ai.pipestream.connector.intake.*;
+import ai.pipestream.grpc.wiremock.AccountManagerMock;
 import ai.pipestream.grpc.wiremock.InjectWireMock;
 import ai.pipestream.repository.filesystem.upload.UploadState;
 import com.github.tomakehurst.wiremock.WireMockServer;
@@ -32,6 +33,7 @@ public class ConnectorIntakeRepositoryIntegrationTest {
 
     private static final String TEST_CONNECTOR_ID = "test-connector-123";
     private static final String TEST_API_KEY = "test-api-key";
+    private static final String TEST_ACCOUNT_ID = "test-account-123";
 
     @InjectWireMock
     WireMockServer wireMockServer;
@@ -39,12 +41,24 @@ public class ConnectorIntakeRepositoryIntegrationTest {
     private ManagedChannel intakeChannel;
     private MutinyConnectorIntakeServiceGrpc.MutinyConnectorIntakeServiceStub intakeClient;
     private RepositoryServiceMock repositoryServiceMock;
+    private ConnectorServiceMock connectorServiceMock;
+    private AccountManagerMock accountManagerMock;
 
     @BeforeEach
     void setUp() {
+        int wireMockPort = wireMockServer.port();
+        
         // Set up repository service mocks
-        repositoryServiceMock = new RepositoryServiceMock(wireMockServer.port());
+        repositoryServiceMock = new RepositoryServiceMock(wireMockPort);
         repositoryServiceMock.mockInitiateUpload("test-node-id", "test-upload-id");
+
+        // Set up connector service mocks (for connector validation)
+        connectorServiceMock = new ConnectorServiceMock(wireMockPort);
+        connectorServiceMock.mockValidateApiKey(TEST_CONNECTOR_ID, TEST_API_KEY, TEST_ACCOUNT_ID);
+
+        // Set up account manager mocks (for account validation)
+        accountManagerMock = new AccountManagerMock(wireMockPort);
+        accountManagerMock.mockGetAccount(TEST_ACCOUNT_ID, "Test Account", "Test account for integration tests", true);
 
         // Create gRPC client to call connector-intake-service
         // Note: In @QuarkusTest, the service runs on quarkus.http.test-port
@@ -82,16 +96,14 @@ public class ConnectorIntakeRepositoryIntegrationTest {
                 .setExpectedChunkSize(100 * 1024) // 100KB chunks
                 .build();
 
-        // This will fail without connector validation, but we can verify the structure
-        // TODO: Need to mock ConnectorValidationService or use test profile
-
+        // This should now work with connector and account validation mocked
         StartChunkedUploadResponse response = intakeClient.startChunkedUpload(request)
                 .await().atMost(java.time.Duration.ofSeconds(5));
 
         // Verify response
         assertNotNull(response);
-        // Note: The actual call to repository-service may fail due to connector validation,
-        // but the stub is set up correctly. We verify the stub works in the next test.
+        // The response should contain upload information from the repository service
+        assertNotNull(response.getUploadId());
     }
 
     @Test

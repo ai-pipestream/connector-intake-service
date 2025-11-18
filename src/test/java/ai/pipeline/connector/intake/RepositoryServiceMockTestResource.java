@@ -68,6 +68,10 @@ public class RepositoryServiceMockTestResource implements QuarkusTestResourceLif
             Map.entry("quarkus.stork.connector-service.service-discovery.type", "static"),
             Map.entry("quarkus.stork.connector-service.service-discovery.address-list", "localhost:" + mockPort),
 
+            // Stork static discovery for account-manager (needed for account validation)
+            Map.entry("quarkus.stork.account-manager.service-discovery.type", "static"),
+            Map.entry("quarkus.stork.account-manager.service-discovery.address-list", "localhost:" + mockPort),
+
             // System property for injecting WireMock server
             Map.entry("test.wiremock.port", String.valueOf(mockPort)),
 
