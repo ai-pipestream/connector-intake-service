@@ -21,7 +21,7 @@ scmVersion {
     }
 }
 
-def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.2.3'
+def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.2.6-SNAPSHOT'
 
 dependencies {
     implementation 'io.quarkus:quarkus-container-image-docker'
@@ -46,9 +46,6 @@ dependencies {
     implementation 'io.smallrye.reactive:smallrye-mutiny-vertx-consul-client'
 
     // Pipeline libraries (published to Maven Local)
-
-    // Use 0.2.4 for now to get latest mocks (will be in next BOM version)
-    testImplementation 'ai.pipestream:grpc-wiremock:0.2.4'
     // Pipestream libraries - versions managed entirely by the BOM/catalog
     implementation libs.pipestream.compose.devservices
     implementation libs.pipestream.grpc.stubs
@@ -65,6 +62,7 @@ dependencies {
     // Testing
     testImplementation 'io.quarkus:quarkus-junit5'
     testImplementation 'io.rest-assured:rest-assured'
+    testImplementation libs.pipestream.grpc.wiremock
 }
 
 group = 'ai.pipestream'

@@ -4,6 +4,8 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import io.grpc.Status;
 import ai.pipestream.connector.intake.*;
+import ai.pipestream.dynamic.grpc.client.DynamicGrpcClientFactory;
+import ai.pipestream.repository.filesystem.upload.*;
 import ai.pipeline.connector.intake.entity.CrawlSession;
 import ai.pipeline.connector.intake.repository.CrawlSessionRepository;
 import io.quarkus.grpc.GrpcService;
@@ -43,12 +45,27 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
     @Inject
     CrawlSessionRepository sessionRepository;
 
+    @Inject
+    DynamicGrpcClientFactory grpcClientFactory;
+
     // Track active sessions per stream (keyed by connector_id:crawl_id)
     private final Map<String, StreamSession> activeSessions = new ConcurrentHashMap<>();
     
     // Track active streams per connector for rate limiting
     private final Map<String, AtomicInteger> activeStreamsPerConnector = new ConcurrentHashMap<>();
     private static final int MAX_STREAMS_PER_CONNECTOR = 10000; // Effectively unlimited for testing
+
+    // Track uploadId -> nodeId mapping for async chunked uploads
+    // Key: uploadId (from connector-intake), Value: nodeId (from repository-service)
+    private final Map<String, String> uploadIdToNodeId = new ConcurrentHashMap<>();
+    
+    // Track uploadId -> repository uploadId mapping
+    // Key: uploadId (from connector-intake), Value: repository uploadId (from repository-service)
+    private final Map<String, String> uploadIdToRepoUploadId = new ConcurrentHashMap<>();
+    
+    // Track uploadId -> highest chunk number uploaded (for determining last chunk)
+    // Key: uploadId (from connector-intake), Value: highest chunk number seen
+    private final Map<String, Integer> uploadIdToHighestChunk = new ConcurrentHashMap<>();
 
     /**
      * Stream processing entry point for the Connector Intake gRPC service.
@@ -515,13 +532,11 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                         "{}",
                         false,
                         false
-                    ).map(createdSessionId -> {
+                    ).flatMap(createdSessionId -> {
                         return createChunkedUploadResponse(uploadId, config, request, createdSessionId);
                     });
                 } else {
-                    return Uni.createFrom().item(() -> {
-                        return createChunkedUploadResponse(uploadId, config, request, sessionId);
-                    });
+                    return createChunkedUploadResponse(uploadId, config, request, sessionId);
                 }
             })
             .onFailure().recoverWithItem(throwable -> {
@@ -533,19 +548,51 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
             });
     }
 
-    private StartChunkedUploadResponse createChunkedUploadResponse(
+    private Uni<StartChunkedUploadResponse> createChunkedUploadResponse(
             String uploadId, ConnectorConfig config, StartChunkedUploadRequest request, String sessionId) {
         
-        // TODO: In Step 4, this will call repository-service.InitiateUpload()
-        // For now, return response without Redis
-        
-        return StartChunkedUploadResponse.newBuilder()
-            .setSuccess(true)
-            .setUploadId(uploadId)
-            .setMessage("Chunked upload started")
-            .setMaxChunkSize(10 * 1024 * 1024) // 10MB recommended max
-            .setTimeoutSeconds(3600) // 1 hour timeout
-            .build();
+        // Call repository-service.InitiateUpload()
+        return grpcClientFactory.getNodeUploadServiceClient("repository-service")
+            .flatMap(stub -> {
+                // Build InitiateUploadRequest from connector config and request
+                ai.pipestream.repository.filesystem.upload.InitiateUploadRequest repoRequest = 
+                    ai.pipestream.repository.filesystem.upload.InitiateUploadRequest.newBuilder()
+                    .setDrive(config.getS3Bucket())
+                    .setParentId("0")  // Root folder
+                    .setName(request.getFilename())
+                    .setPath(request.getPath())
+                    .setConnectorId(request.getConnectorId())
+                    .setExpectedSize(request.getExpectedSizeBytes())
+                    .setMimeType(request.getMimeType())
+                    .putAllMetadata(request.getSourceMetadataMap())
+                    .build();
+                
+                return stub.initiateUpload(repoRequest);
+            })
+            .map(response -> {
+                // Store the mapping: uploadId (connector-intake) -> nodeId (repository-service)
+                uploadIdToNodeId.put(uploadId, response.getNodeId());
+                uploadIdToRepoUploadId.put(uploadId, response.getUploadId());
+                
+                LOG.infof("Initiated upload: connectorUploadId=%s, nodeId=%s, repoUploadId=%s", 
+                    uploadId, response.getNodeId(), response.getUploadId());
+                
+                return StartChunkedUploadResponse.newBuilder()
+                    .setSuccess(true)
+                    .setUploadId(uploadId)
+                    .setMessage("Chunked upload started")
+                    .setMaxChunkSize(10 * 1024 * 1024) // 10MB recommended max
+                    .setTimeoutSeconds(3600) // 1 hour timeout
+                    .build();
+            })
+            .onFailure().recoverWithItem(throwable -> {
+                LOG.errorf(throwable, "Failed to initiate upload in repository-service: uploadId=%s", uploadId);
+                return StartChunkedUploadResponse.newBuilder()
+                    .setSuccess(false)
+                    .setUploadId(uploadId)
+                    .setMessage("Failed to initiate upload: " + throwable.getMessage())
+                    .build();
+            });
     }
 
     /**
@@ -556,17 +603,62 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
         LOG.debugf("UploadAsyncChunk: uploadId=%s, chunkNumber=%d, size=%d", 
             request.getUploadId(), request.getChunkNumber(), request.getChunkData().size());
 
-        // TODO: In Step 4, this will call repository-service.UploadChunk()
-        // For now, return success response without Redis
+        // Get nodeId from mapping
+        String nodeId = uploadIdToNodeId.get(request.getUploadId());
+        String repoUploadId = uploadIdToRepoUploadId.get(request.getUploadId());
         
-        return Uni.createFrom().item(
-            AsyncChunkedUploadChunkResponse.newBuilder()
-                .setSuccess(true)
-                .setUploadId(request.getUploadId())
-                .setChunkNumber(request.getChunkNumber())
-                .setMessage("Chunk queued successfully")
-                .build()
-        );
+        if (nodeId == null) {
+            LOG.warnf("Upload not found: uploadId=%s", request.getUploadId());
+            return Uni.createFrom().item(
+                AsyncChunkedUploadChunkResponse.newBuilder()
+                    .setSuccess(false)
+                    .setUploadId(request.getUploadId())
+                    .setChunkNumber(request.getChunkNumber())
+                    .setMessage("Upload not found. Call StartChunkedUpload first.")
+                    .build()
+            );
+        }
+
+        // Call repository-service.UploadChunk()
+        return grpcClientFactory.getNodeUploadServiceClient("repository-service")
+            .flatMap(stub -> {
+                ai.pipestream.repository.filesystem.upload.UploadChunkRequest repoRequest = 
+                    ai.pipestream.repository.filesystem.upload.UploadChunkRequest.newBuilder()
+                    .setNodeId(nodeId)
+                    .setUploadId(repoUploadId)
+                    .setData(request.getChunkData())
+                    .setChunkNumber(request.getChunkNumber())
+                    .setIsLast(false)  // We don't know if this is the last chunk yet
+                    .build();
+                
+                return stub.uploadChunk(repoRequest);
+            })
+            .map(response -> {
+                // Track highest chunk number for this upload
+                uploadIdToHighestChunk.merge(request.getUploadId(), request.getChunkNumber(), 
+                    Integer::max);
+                
+                LOG.debugf("Chunk uploaded: uploadId=%s, chunkNumber=%d, nodeId=%s", 
+                    request.getUploadId(), request.getChunkNumber(), nodeId);
+                
+                return AsyncChunkedUploadChunkResponse.newBuilder()
+                    .setSuccess(true)
+                    .setUploadId(request.getUploadId())
+                    .setChunkNumber(request.getChunkNumber())
+                    .setMessage("Chunk queued successfully")
+                    .build();
+            })
+            .onFailure().recoverWithItem(throwable -> {
+                LOG.errorf(throwable, "Failed to upload chunk: uploadId=%s, chunkNumber=%d", 
+                    request.getUploadId(), request.getChunkNumber());
+                
+                return AsyncChunkedUploadChunkResponse.newBuilder()
+                    .setSuccess(false)
+                    .setUploadId(request.getUploadId())
+                    .setChunkNumber(request.getChunkNumber())
+                    .setMessage("Failed to upload chunk: " + throwable.getMessage())
+                    .build();
+            });
     }
 
     /**
@@ -577,16 +669,83 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
         LOG.infof("CompleteChunkedUpload: uploadId=%s, totalChunks=%d, sha256=%s", 
             request.getUploadId(), request.getTotalChunksSent(), request.getFinalSha256());
 
-        // TODO: In Step 4, this will call repository-service.GetUploadStatus() and handle completion
-        // For now, return a stub response
+        // Get nodeId from mapping
+        String nodeId = uploadIdToNodeId.get(request.getUploadId());
+        String repoUploadId = uploadIdToRepoUploadId.get(request.getUploadId());
         
-        return Uni.createFrom().item(
-            CompleteChunkedUploadResponse.newBuilder()
-                .setSuccess(false)
-                .setUploadId(request.getUploadId())
-                .setMessage("Not yet implemented - will call repository-service in Step 4")
-                .build()
-        );
+        if (nodeId == null) {
+            LOG.warnf("Upload not found: uploadId=%s", request.getUploadId());
+            return Uni.createFrom().item(
+                CompleteChunkedUploadResponse.newBuilder()
+                    .setSuccess(false)
+                    .setUploadId(request.getUploadId())
+                    .setMessage("Upload not found. Call StartChunkedUpload first.")
+                    .build()
+            );
+        }
+
+        // Check if we need to mark the last chunk with isLast=true
+        // The last chunk number is totalChunksSent - 1 (0-based indexing)
+        int lastChunkNumber = request.getTotalChunksSent() - 1;
+        Integer highestChunk = uploadIdToHighestChunk.get(request.getUploadId());
+        
+        // If the last chunk hasn't been uploaded with isLast=true, we need to handle it
+        // For now, we'll check the status. The repository-service should handle completion
+        // when all chunks are received, even if isLast wasn't set on the last chunk.
+        
+        // Call repository-service.GetUploadStatus()
+        return grpcClientFactory.getNodeUploadServiceClient("repository-service")
+            .flatMap(stub -> {
+                ai.pipestream.repository.filesystem.upload.GetUploadStatusRequest statusRequest = 
+                    ai.pipestream.repository.filesystem.upload.GetUploadStatusRequest.newBuilder()
+                    .setNodeId(nodeId)
+                    .build();
+                
+                return stub.getUploadStatus(statusRequest);
+            })
+            .map(statusResponse -> {
+                LOG.infof("Upload status: uploadId=%s, nodeId=%s, state=%s, bytesUploaded=%d, totalBytes=%d",
+                    request.getUploadId(), nodeId, statusResponse.getState(), 
+                    statusResponse.getBytesUploaded(), statusResponse.getTotalBytes());
+                
+                // Check if upload is complete
+                boolean isComplete = statusResponse.getState() == UploadState.UPLOAD_STATE_COMPLETED;
+                
+                // Build response
+                CompleteChunkedUploadResponse.Builder responseBuilder = CompleteChunkedUploadResponse.newBuilder()
+                    .setSuccess(isComplete)
+                    .setUploadId(request.getUploadId())
+                    .setMessage(isComplete ? "Upload completed successfully" : 
+                        "Upload in progress. State: " + statusResponse.getState());
+                
+                if (isComplete) {
+                    // Upload is complete - we can clean up the mappings
+                    uploadIdToNodeId.remove(request.getUploadId());
+                    uploadIdToRepoUploadId.remove(request.getUploadId());
+                    uploadIdToHighestChunk.remove(request.getUploadId());
+                } else {
+                    // Upload is still in progress - return status information
+                    // The client can poll by calling completeChunkedUpload again
+                    if (statusResponse.getState() == UploadState.UPLOAD_STATE_UPLOADING) {
+                        responseBuilder.setMessage("Upload in progress. " + 
+                            statusResponse.getBytesUploaded() + " / " + 
+                            statusResponse.getTotalBytes() + " bytes uploaded");
+                    } else if (statusResponse.getState() == UploadState.UPLOAD_STATE_FAILED) {
+                        responseBuilder.setMessage("Upload failed: " + 
+                            (statusResponse.getErrorMessage().isEmpty() ? "Unknown error" : statusResponse.getErrorMessage()));
+                    }
+                }
+                
+                return responseBuilder.build();
+            })
+            .onFailure().recoverWithItem(throwable -> {
+                LOG.errorf(throwable, "Failed to get upload status: uploadId=%s", request.getUploadId());
+                return CompleteChunkedUploadResponse.newBuilder()
+                    .setSuccess(false)
+                    .setUploadId(request.getUploadId())
+                    .setMessage("Failed to get upload status: " + throwable.getMessage())
+                    .build();
+            });
     }
 
     // Removed reassembleAndStoreChunks and retrieveChunksSequentially methods

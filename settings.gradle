@@ -10,15 +10,16 @@ dependencyResolutionManagement {
     versionCatalogs {
         libs {
             // Import version catalog from published BOM
-            from("ai.pipestream:pipeline-bom-catalog:0.2.3")
+            from("ai.pipestream:pipeline-bom-catalog:0.2.6-SNAPSHOT")
         }
     }
 
     repositories {
-        // Prefer Maven Central but allow locally published releases for development
+        // Prefer Maven Central but allow locally published releases and snapshots for development
         mavenLocal {
             mavenContent {
                 releasesOnly()
+                snapshotsOnly()
             }
             content {
                 includeGroupByRegex "ai\\.pipestream(\\..*)?"
