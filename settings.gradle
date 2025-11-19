@@ -10,7 +10,7 @@ dependencyResolutionManagement {
     versionCatalogs {
         libs {
             // Import version catalog from published BOM
-            from("ai.pipestream:pipeline-bom-catalog:0.2.6-SNAPSHOT")
+            from("ai.pipestream:pipeline-bom-catalog:0.2.6")
         }
     }
 

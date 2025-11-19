@@ -21,7 +21,7 @@ scmVersion {
     }
 }
 
-def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.2.6-SNAPSHOT'
+def pipelineBomVersion = findProperty('pipelineBomVersion') ?: '0.2.6'
 
 dependencies {
     implementation 'io.quarkus:quarkus-container-image-docker'
@@ -63,6 +63,8 @@ dependencies {
     testImplementation 'io.quarkus:quarkus-junit5'
     testImplementation 'io.rest-assured:rest-assured'
     testImplementation libs.pipestream.grpc.wiremock
+    testImplementation 'ai.pipestream:data-util'
+    testImplementation 'ai.pipestream:test-documents'
 }
 
 group = 'ai.pipestream'
