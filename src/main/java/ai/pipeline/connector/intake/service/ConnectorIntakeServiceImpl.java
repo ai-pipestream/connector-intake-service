@@ -59,27 +59,63 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
         if (repoService == null) {
             synchronized (this) {
                 if (repoService == null) {
-                    // Resolve port at runtime - in tests, quarkus.http.test-port may be 0 initially
-                    // but the actual assigned port is available via system property set by test
+                    // Resolve port at runtime using gRPC-aware properties first. We run with Netty (no in-process),
+                    // and in tests we may use a unified server (no separate gRPC port). In that case, the gRPC
+                    // server listens on the HTTP port. We first honor an explicit system property set by tests
+                    // (quarkus.grpc.server.port.actual), then fall back to HTTP test/regular port.
                     int port = repoServicePort;
                     if (port == 0) {
-                        // Check system property set by test (if available)
-                        String testPortProp = System.getProperty("quarkus.http.test-port.actual");
-                        if (testPortProp != null) {
-                            port = Integer.parseInt(testPortProp);
-                            LOG.debugf("Using test port from system property: %d", port);
-                        } else {
-                            // Try to get from ConfigProvider (might work after Quarkus starts)
+                        // 1) Prefer gRPC actual port if provided by tests/benchmarks
+                        String grpcActual = System.getProperty("quarkus.grpc.server.port.actual");
+                        if (grpcActual != null && !grpcActual.isBlank()) {
+                            try {
+                                port = Integer.parseInt(grpcActual);
+                                LOG.debugf("Using gRPC actual port from system property: %d", port);
+                            } catch (NumberFormatException nfe) {
+                                LOG.warnf(nfe, "Invalid quarkus.grpc.server.port.actual value: %s", grpcActual);
+                            }
+                        }
+
+                        // 2) Separate server: test-port first
+                        if (port == 0) {
+                            Optional<Integer> grpcTestPort = ConfigProvider.getConfig()
+                                    .getOptionalValue("quarkus.grpc.server.test-port", Integer.class);
+                            if (grpcTestPort.isPresent() && grpcTestPort.get() > 0) {
+                                port = grpcTestPort.get();
+                                LOG.debugf("Using gRPC server test-port from config: %d", port);
+                            }
+                        }
+
+                        // 3) Separate server: regular gRPC port
+                        if (port == 0) {
+                            Optional<Integer> grpcPort = ConfigProvider.getConfig()
+                                    .getOptionalValue("quarkus.grpc.server.port", Integer.class);
+                            if (grpcPort.isPresent() && grpcPort.get() > 0) {
+                                port = grpcPort.get();
+                                LOG.debugf("Using gRPC server port from config: %d", port);
+                            }
+                        }
+
+                        // 4) As a last fallback, try HTTP ports (unified mode)
+                        if (port == 0) {
+                            Optional<Integer> httpTestPort = ConfigProvider.getConfig()
+                                    .getOptionalValue("quarkus.http.test-port", Integer.class);
+                            if (httpTestPort.isPresent() && httpTestPort.get() > 0) {
+                                port = httpTestPort.get();
+                                LOG.debugf("Using HTTP test-port (unified gRPC fallback) from config: %d", port);
+                            }
+                        }
+                        if (port == 0) {
                             Optional<Integer> httpPort = ConfigProvider.getConfig()
                                     .getOptionalValue("quarkus.http.port", Integer.class);
                             if (httpPort.isPresent() && httpPort.get() > 0) {
                                 port = httpPort.get();
-                                LOG.debugf("Using HTTP port from config: %d", port);
-                            } else {
-                                // Fall back to default
-                                LOG.warnf("Port is 0 and cannot resolve, using default 38105. If in test, ensure test sets system property quarkus.http.test-port.actual.");
-                                port = 38105;
+                                LOG.debugf("Using HTTP port (unified gRPC fallback) from config: %d", port);
                             }
+                        }
+
+                        if (port == 0) {
+                            throw new IllegalStateException("Cannot resolve gRPC port for repo-service. Set quarkus.grpc.server.port.actual or configure quarkus.grpc.server.[test-]port.");
                         }
                     }
                     
