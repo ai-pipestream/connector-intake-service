@@ -26,6 +26,11 @@ public class RepositoryClient {
     private static final Logger LOG = Logger.getLogger(RepositoryClient.class);
     private static final String REPOSITORY_SERVICE_NAME = "repository-service";
 
+    /**
+     * Default constructor for CDI.
+     */
+    public RepositoryClient() { }
+
     @Inject
     DynamicGrpcClientFactory grpcClientFactory;
 

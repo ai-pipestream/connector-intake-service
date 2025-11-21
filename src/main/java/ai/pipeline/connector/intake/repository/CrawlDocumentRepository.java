@@ -15,6 +15,11 @@ import java.util.Optional;
 public class CrawlDocumentRepository implements PanacheRepository<CrawlDocument> {
 
     /**
+     * Default constructor for CDI.
+     */
+    public CrawlDocumentRepository() { }
+
+    /**
      * Find a tracked document by session and source ID.
      *
      * @param sessionId crawl session identifier

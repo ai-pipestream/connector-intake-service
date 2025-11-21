@@ -62,14 +62,29 @@ public class CrawlDocument extends PanacheEntityBase {
      */
     @Embeddable
     public static class CrawlDocumentId implements Serializable {
+        /**
+         * Crawl session identifier (UUID of the session that processed the document).
+         */
         @Column(name = "crawl_session_id", length = 100, nullable = false)
         public String crawlSessionId;
 
+        /**
+         * Source-system unique identifier for the document (e.g., external ID or path).
+         */
         @Column(name = "source_id", length = 500, nullable = false)
         public String sourceId;
 
+        /**
+         * Default constructor for JPA.
+         */
         public CrawlDocumentId() {}
 
+        /**
+         * Create a composite identifier.
+         *
+         * @param crawlSessionId crawl session identifier
+         * @param sourceId source-system document identifier
+         */
         public CrawlDocumentId(String crawlSessionId, String sourceId) {
             this.crawlSessionId = crawlSessionId;
             this.sourceId = sourceId;

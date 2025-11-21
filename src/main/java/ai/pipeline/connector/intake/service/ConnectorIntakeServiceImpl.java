@@ -33,6 +33,19 @@ import com.google.protobuf.ByteString;
 
 @Singleton
 @GrpcService
+/**
+ * gRPC service implementation handling connector ingestion endpoints.
+ * <p>
+ * Responsibilities:
+ * <ul>
+ *   <li>Validates connector identity and API key via ConnectorValidationService.</li>
+ *   <li>Streams documents and blobs to repository-service using a dynamically
+ *       provisioned NodeUploadService stub.</li>
+ *   <li>Manages crawl session lifecycle (start, heartbeat, end).</li>
+ * </ul>
+ * This class is stateful only with respect to a lazily-initialized repository
+ * upload stub; all other operations are request-scoped and reactive.
+ */
 public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc.ConnectorIntakeServiceImplBase {
 
     private static final Logger LOG = Logger.getLogger(ConnectorIntakeServiceImpl.class);
@@ -54,6 +67,11 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
     // The stub class is what GrpcClientProvider returns
     // Lazy initialization - port may not be known at @PostConstruct time in tests
     private volatile MutinyNodeUploadServiceGrpc.MutinyNodeUploadServiceStub repoService;
+
+    /**
+     * Default constructor for CDI / gRPC. No custom initialization required.
+     */
+    public ConnectorIntakeServiceImpl() { }
 
     private MutinyNodeUploadServiceGrpc.MutinyNodeUploadServiceStub getRepoService() {
         if (repoService == null) {

@@ -16,6 +16,11 @@ import java.util.Optional;
 public class CrawlSessionRepository implements PanacheRepository<CrawlSession> {
 
     /**
+     * Default constructor for CDI.
+     */
+    public CrawlSessionRepository() { }
+
+    /**
      * Find a session by its unique identifier.
      *
      * @param sessionId session UUID

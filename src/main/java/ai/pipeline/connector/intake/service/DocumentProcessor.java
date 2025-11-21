@@ -17,8 +17,16 @@ public class DocumentProcessor {
     private static final Logger LOG = Logger.getLogger(DocumentProcessor.class);
 
     /**
+     * Default constructor for CDI.
+     */
+    public DocumentProcessor() { }
+
+    /**
      * Process a PipeDoc upload request.
      * Currently a pass-through, but placeholder for future pre-upload validation/enrichment.
+     *
+     * @param request the inbound PipeDoc request to process
+     * @return a {@code Uni<Void>} that completes when processing finishes
      */
     public Uni<Void> processPipeDoc(UploadPipeDocRequest request) {
         // No-op for now; validation happens in ConnectorIntakeServiceImpl
@@ -28,6 +36,9 @@ public class DocumentProcessor {
     /**
      * Process a Blob upload request.
      * Currently a pass-through, but placeholder for future pre-upload validation/enrichment.
+     *
+     * @param request the inbound Blob request to process
+     * @return a {@code Uni<Void>} that completes when processing finishes
      */
     public Uni<Void> processBlob(UploadBlobRequest request) {
         // No-op for now; validation happens in ConnectorIntakeServiceImpl

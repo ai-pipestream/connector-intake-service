@@ -26,6 +26,11 @@ public class ConnectorValidationService {
     private static final String CONNECTOR_SERVICE_NAME = "connector-service";
     private static final String ACCOUNT_SERVICE_NAME = "account-manager";
 
+    /**
+     * Default constructor for CDI.
+     */
+    public ConnectorValidationService() { }
+
     @Inject
     DynamicGrpcClientFactory grpcClientFactory;
 

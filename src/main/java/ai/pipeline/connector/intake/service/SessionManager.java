@@ -22,6 +22,11 @@ public class SessionManager {
 
     private static final Logger LOG = Logger.getLogger(SessionManager.class);
 
+    /**
+     * Default constructor for CDI.
+     */
+    public SessionManager() { }
+
     @Inject
     CrawlSessionRepository sessionRepository;
 

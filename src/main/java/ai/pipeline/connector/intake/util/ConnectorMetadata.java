@@ -24,44 +24,103 @@ public class ConnectorMetadata {
     private long rateLimitPerMinute = 1000; // 1000 docs/min default
     private Map<String, String> defaultMetadata = new HashMap<>();
 
+    /**
+     * Create an instance with safe defaults.
+     * <ul>
+     *   <li>s3Bucket/s3BasePath: empty strings</li>
+     *   <li>maxFileSize: 100 MiB</li>
+     *   <li>rateLimitPerMinute: 1000</li>
+     *   <li>defaultMetadata: empty map</li>
+     * </ul>
+     */
     public ConnectorMetadata() {}
 
+    /**
+     * Get the S3 bucket name used for storage.
+     *
+     * @return bucket name (never null, may be empty)
+     */
     public String getS3Bucket() {
         return s3Bucket;
     }
 
+    /**
+     * Set the S3 bucket name used for storage.
+     *
+     * @param s3Bucket bucket name; null is treated as empty string
+     */
     public void setS3Bucket(String s3Bucket) {
         this.s3Bucket = s3Bucket != null ? s3Bucket : "";
     }
 
+    /**
+     * Get the base path within the S3 bucket where documents are stored.
+     *
+     * @return base path/prefix (never null, may be empty)
+     */
     public String getS3BasePath() {
         return s3BasePath;
     }
 
+    /**
+     * Set the base path within the S3 bucket where documents are stored.
+     *
+     * @param s3BasePath path/prefix; null is treated as empty string
+     */
     public void setS3BasePath(String s3BasePath) {
         this.s3BasePath = s3BasePath != null ? s3BasePath : "";
     }
 
+    /**
+     * Get the maximum allowed file size for uploads.
+     *
+     * @return max size in bytes
+     */
     public long getMaxFileSize() {
         return maxFileSize;
     }
 
+    /**
+     * Set the maximum allowed file size for uploads.
+     *
+     * @param maxFileSize size in bytes; non-positive values reset to default (100 MiB)
+     */
     public void setMaxFileSize(long maxFileSize) {
         this.maxFileSize = maxFileSize > 0 ? maxFileSize : 100 * 1024 * 1024;
     }
 
+    /**
+     * Get the allowed ingestion rate.
+     *
+     * @return documents per minute
+     */
     public long getRateLimitPerMinute() {
         return rateLimitPerMinute;
     }
 
+    /**
+     * Set the allowed ingestion rate.
+     *
+     * @param rateLimitPerMinute documents per minute; non-positive values reset to default (1000)
+     */
     public void setRateLimitPerMinute(long rateLimitPerMinute) {
         this.rateLimitPerMinute = rateLimitPerMinute > 0 ? rateLimitPerMinute : 1000;
     }
 
+    /**
+     * Get default metadata applied to every stored document.
+     *
+     * @return map of key-value metadata (never null)
+     */
     public Map<String, String> getDefaultMetadata() {
         return defaultMetadata;
     }
 
+    /**
+     * Set default metadata applied to every stored document.
+     *
+     * @param defaultMetadata map of key-value metadata; null becomes an empty map
+     */
     public void setDefaultMetadata(Map<String, String> defaultMetadata) {
         this.defaultMetadata = defaultMetadata != null ? defaultMetadata : new HashMap<>();
     }
@@ -91,7 +150,11 @@ public class ConnectorMetadata {
     }
 
     /**
-     * Parse from JSON string.
+     * Parse a ConnectorMetadata instance from its JSON representation.
+     * Unknown fields are ignored. On parse errors, a default instance is returned.
+     *
+     * @param json JSON string produced by {@link #toJson()} or equivalent structure
+     * @return parsed {@code ConnectorMetadata} instance; default instance if input is null/empty/invalid
      */
     public static ConnectorMetadata fromJson(String json) {
         if (json == null || json.isEmpty() || json.equals("{}")) {
