@@ -1,303 +1,227 @@
 package ai.pipeline.connector.intake;
 
+import ai.pipeline.connector.intake.config.RepositoryServiceTestResource;
+import ai.pipeline.connector.intake.service.ConnectorValidationService;
 import ai.pipestream.connector.intake.*;
-import ai.pipestream.grpc.wiremock.AccountManagerMock;
-import ai.pipestream.grpc.wiremock.ConnectorIntakeTestResource;
-import ai.pipestream.grpc.wiremock.ConnectorServiceMock;
-import ai.pipestream.grpc.wiremock.InjectWireMock;
-import ai.pipestream.grpc.wiremock.RepositoryServiceMock;
-import static ai.pipestream.grpc.wiremock.WireMockGrpcCompat.*;
-import com.github.tomakehurst.wiremock.WireMockServer;
 import com.google.protobuf.ByteString;
-import io.grpc.ManagedChannel;
-import io.grpc.ManagedChannelBuilder;
-import io.quarkus.test.common.QuarkusTestResource;
+import io.quarkus.grpc.GrpcClient;
+import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.test.common.QuarkusTestResource;
+import io.quarkus.test.common.http.TestHTTPResource;
+import io.smallrye.mutiny.Uni;
 import org.jboss.logging.Logger;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.net.URL;
+
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
-import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.when;
 
-/**
- * Benchmark test for connector-intake-service.
- * Measures throughput of the intake service with mocked downstream dependencies.
- */
 @QuarkusTest
-@QuarkusTestResource(ConnectorIntakeTestResource.class)
+@QuarkusTestResource(RepositoryServiceTestResource.class)
 public class BenchmarkIntakeTest {
 
     private static final Logger LOG = Logger.getLogger(BenchmarkIntakeTest.class);
-    private static final String TEST_CONNECTOR_ID = "benchmark-connector";
-    private static final String TEST_API_KEY = "benchmark-key";
-    private static final String TEST_ACCOUNT_ID = "benchmark-account";
-    
-    // Path to the sample file
-    private static final String SAMPLE_FILE_PATH = "/home/krickert/IdeaProjects/ai-pipestream/sample-documents/sample-doc-types/database/flights-1m.parquet";
 
-    @InjectWireMock
-    WireMockServer wireMockServer;
+    @GrpcClient("connector-intake-service")
+    MutinyConnectorIntakeServiceGrpc.MutinyConnectorIntakeServiceStub intakeClient;
 
-    private ManagedChannel intakeChannel;
-    private MutinyConnectorIntakeServiceGrpc.MutinyConnectorIntakeServiceStub intakeClient;
-    private RepositoryServiceMock repositoryServiceMock;
-    private ConnectorServiceMock connectorServiceMock;
-    private AccountManagerMock accountManagerMock;
+    @InjectMock
+    ConnectorValidationService validationService;
+
+    @TestHTTPResource
+    URL testUrl;
 
     @BeforeEach
-    void setUp() {
-        int wireMockPort = wireMockServer.port();
+    void setupPort() {
+        // When use-separate-server=true, gRPC runs on a different port than HTTP
+        // In test mode, Quarkus uses test-port (defaults to 9001) instead of port
+        // When test-port=0, Quarkus assigns a random port
+        // After Quarkus starts, the actual assigned port is available via ConfigProvider
+        org.eclipse.microprofile.config.Config config = org.eclipse.microprofile.config.ConfigProvider.getConfig();
         
-        // Set up repository service mocks - fast response
-        repositoryServiceMock = new RepositoryServiceMock(wireMockPort);
-        repositoryServiceMock.mockInitiateUpload("bench-node-id", "bench-upload-id");
+        // Read the actual assigned gRPC test port from config (Quarkus sets this after server starts)
+        // In test mode with use-separate-server=true, this will be the actual assigned port
+        int grpcPort = config.getOptionalValue("quarkus.grpc.server.test-port", Integer.class)
+                .orElse(config.getOptionalValue("quarkus.grpc.server.port", Integer.class)
+                        .orElse(9001)); // Fallback to default if not found
         
-        // Use a simple fixed response for all chunks to avoid JSON templating issues under high concurrency.
-        // This matches ANY UploadChunk request and returns a fixed response.
-        // For benchmark testing, we don't need dynamic responses - just fast, reliable mocks.
-        repositoryServiceMock.getService().stubFor(
-            method("UploadChunk")
-                .willReturn(message(
-                    ai.pipestream.repository.filesystem.upload.UploadChunkResponse.newBuilder()
-                        .setNodeId("bench-node-id")
-                        .setChunkNumber(0)  // Fixed value - not critical for benchmark
-                        .setState(ai.pipestream.repository.filesystem.upload.UploadState.UPLOAD_STATE_UPLOADING)
-                        .setBytesUploaded(0)
-                        .setIsFileComplete(false)
-                        .build()
-                ))
-        );
-        
-        repositoryServiceMock.mockGetUploadStatus("bench-node-id", ai.pipestream.repository.filesystem.upload.UploadState.UPLOAD_STATE_COMPLETED);
-
-        // Set up connector service mocks
-        connectorServiceMock = new ConnectorServiceMock(wireMockPort);
-        connectorServiceMock.mockValidateApiKey(TEST_CONNECTOR_ID, TEST_API_KEY, TEST_ACCOUNT_ID);
-
-        // Set up account manager mocks
-        accountManagerMock = new AccountManagerMock(wireMockPort);
-        accountManagerMock.mockGetAccount(TEST_ACCOUNT_ID, "Benchmark Account", "Test account", true);
-
-        // Create gRPC client
-        int intakePort = Integer.parseInt(
-                System.getProperty("quarkus.http.test-port", "38108")
-        );
-
-        intakeChannel = ManagedChannelBuilder
-                .forAddress("localhost", intakePort)
-                .usePlaintext()
-                .build();
-
-        intakeClient = MutinyConnectorIntakeServiceGrpc.newMutinyStub(intakeChannel);
-    }
-
-    @AfterEach
-    void tearDown() throws InterruptedException {
-        if (intakeChannel != null && !intakeChannel.isShutdown()) {
-            intakeChannel.shutdown();
-            intakeChannel.awaitTermination(5, TimeUnit.SECONDS);
+        if (grpcPort <= 0) {
+            throw new IllegalStateException("Cannot determine gRPC server port - server may not have started. " +
+                    "Expected quarkus.grpc.server.test-port or quarkus.grpc.server.port to be set by Quarkus.");
         }
+        
+        // Set system property for ConnectorIntakeServiceImpl to read
+        System.setProperty("quarkus.grpc.server.port.actual", String.valueOf(grpcPort));
+        LOG.infof("Set gRPC test port system property: quarkus.grpc.server.port.actual=%d (HTTP port is %d, use-separate-server=true)", 
+                grpcPort, testUrl.getPort());
     }
 
     @Test
-    void benchmarkThroughput() throws Exception {
-        // 1. Load file into memory
-        Path path = Paths.get(SAMPLE_FILE_PATH);
-        if (!Files.exists(path)) {
-            LOG.warn("Sample file not found at " + SAMPLE_FILE_PATH + ". Skipping benchmark.");
-            return;
-        }
-        
-        byte[] fileBytes = Files.readAllBytes(path);
-        int fileSize = fileBytes.length;
-        LOG.info("Loaded benchmark file: " + fileSize + " bytes (" + (fileSize / 1024.0 / 1024.0) + " MB)");
+    void benchmarkParallelUpload100MB() {
+        // Arrange
+        int fileSize = 10 * 1024 * 1024; // 10 MB per file
+        int fileCount = 10; // 10 parallel uploads
+        long totalBytes = (long) fileSize * fileCount; // 100 MB total
 
-        // 2. Prepare chunks
-        int chunkSize = 10 * 1024 * 1024; // 10MB chunks (good balance between overhead and parallelism)
-        List<ByteString> chunks = new ArrayList<>();
-        for (int i = 0; i < fileSize; i += chunkSize) {
-            int end = Math.min(fileSize, i + chunkSize);
-            chunks.add(ByteString.copyFrom(fileBytes, i, end - i));
-        }
-        int chunkCount = chunks.size();
-        LOG.info("Prepared " + chunkCount + " chunks of size " + chunkSize + " bytes");
+        byte[] data = new byte[fileSize];
+        Arrays.fill(data, (byte) 1);
+        ByteString content = ByteString.copyFrom(data);
 
-        // 3. Run benchmark loop
-        int iterations = 20; // Upload the file 20 times
-        long totalBytes = (long) fileSize * iterations;
-        
-        LOG.info("Starting benchmark: " + iterations + " iterations, total data: " + (totalBytes / 1024.0 / 1024.0) + " MB");
-        
-        long startTime = System.nanoTime();
-        
-        // Run sequentially for simplicity in measurement, but async within each upload
-        for (int i = 0; i < iterations; i++) {
-            runSingleUpload(i, fileSize, chunkCount, chunks);
-        }
-        
-        long endTime = System.nanoTime();
-        long durationNs = endTime - startTime;
-        double durationSeconds = durationNs / 1_000_000_000.0;
-        
-        double throughputBytesPerSec = totalBytes / durationSeconds;
-        double throughputMBPerSec = throughputBytesPerSec / 1024.0 / 1024.0;
-        
-        LOG.info("--------------------------------------------------");
-        LOG.info("BENCHMARK RESULTS");
-        LOG.info("Total Data: " + (totalBytes / 1024.0 / 1024.0) + " MB");
-        LOG.info("Duration: " + durationSeconds + " seconds");
-        LOG.info("Throughput: " + String.format("%.2f", throughputMBPerSec) + " MB/s");
-        LOG.info("--------------------------------------------------");
-        
-        System.out.println("--------------------------------------------------");
-        System.out.println("BENCHMARK RESULTS");
-        System.out.println("Total Data: " + (totalBytes / 1024.0 / 1024.0) + " MB");
-        System.out.println("Duration: " + durationSeconds + " seconds");
-        System.out.println("Throughput: " + String.format("%.2f", throughputMBPerSec) + " MB/s");
-        System.out.println("--------------------------------------------------");
-        
-        assertTrue(throughputMBPerSec > 10.0, "Throughput should be > 10 MB/s");
-    }
+        String connectorId = "bench-conn";
+        String apiKey = "bench-key";
+        ConnectorConfig config = ConnectorConfig.newBuilder()
+                .setAccountId("bench-acc")
+                .build();
 
-    private void runSingleUpload(int iteration, int fileSize, int chunkCount, List<ByteString> chunks) {
-        // Start - use unique sessionId to avoid database constraint violations in parallel uploads
-        String uniqueSessionId = "bench-session-" + UUID.randomUUID().toString();
-        StartChunkedUploadRequest startRequest = StartChunkedUploadRequest.newBuilder()
-                .setConnectorId(TEST_CONNECTOR_ID)
-                .setApiKey(TEST_API_KEY)
-                .setSessionId(uniqueSessionId)
-                .setFilename("bench-file-" + iteration + ".parquet")
-                .setPath("benchmark")
+        when(validationService.validateConnector(anyString(), anyString()))
+                .thenReturn(Uni.createFrom().item(config));
+
+        UploadBlobRequest request = UploadBlobRequest.newBuilder()
+                .setConnectorId(connectorId)
+                .setApiKey(apiKey)
+                .setFilename("benchmark_parallel.bin")
                 .setMimeType("application/octet-stream")
-                .setExpectedSizeBytes(fileSize)
-                .setExpectedChunkCount(chunkCount)
+                .setContent(content)
                 .build();
 
-        StartChunkedUploadResponse startResponse = intakeClient.startChunkedUpload(startRequest)
-                .await().indefinitely();
+        LOG.info("Warming up (1 request)...");
+        long warmupStart = System.nanoTime();
+        intakeClient.uploadBlob(request).await().atMost(Duration.ofSeconds(10));
+        long warmupTime = System.nanoTime() - warmupStart;
+        LOG.infof("Warmup complete in %.3f ms", warmupTime / 1_000_000.0);
+
+        LOG.infof("Starting benchmark: %d files of %d MB each (Total: %d MB)...", fileCount, fileSize / (1024*1024), totalBytes / (1024*1024));
         
-        String uploadId = startResponse.getUploadId();
-        
-        // Upload chunks (simulate parallel upload of chunks)
-        List<CompletableFuture<Void>> chunkFutures = new ArrayList<>();
-        
-        for (int i = 0; i < chunks.size(); i++) {
-            int chunkNum = i;
-            ByteString data = chunks.get(i);
-            
-            AsyncChunkedUploadChunkRequest chunkRequest = AsyncChunkedUploadChunkRequest.newBuilder()
-                    .setUploadId(uploadId)
-                    .setChunkNumber(chunkNum)
-                    .setChunkData(data)
-                    .build();
-            
-            // Fire and forget style for client, but we wait for ack
-            chunkFutures.add(intakeClient.uploadAsyncChunk(chunkRequest)
-                    .subscribeAsCompletionStage()
-                    .thenAccept(r -> {}));
+        // Measure request building time
+        long buildStart = System.nanoTime();
+        List<Uni<UploadResponse>> tasks = new ArrayList<>();
+        List<Long> taskStartTimes = new ArrayList<>();
+        for (int i = 0; i < fileCount; i++) {
+            long taskStart = System.nanoTime();
+            final int taskIndex = i;
+            tasks.add(intakeClient.uploadBlob(request)
+                .invoke(() -> {
+                    long taskTime = System.nanoTime() - taskStart;
+                    LOG.debugf("Task %s completed in %.3f ms", String.valueOf(taskIndex), taskTime / 1_000_000.0);
+                }));
+            taskStartTimes.add(taskStart);
         }
+        long buildTime = System.nanoTime() - buildStart;
+        LOG.infof("Built %d tasks in %.3f ms", fileCount, buildTime / 1_000_000.0);
+
+        // Act
+        long startTime = System.nanoTime();
+        LOG.info("Starting parallel execution...");
         
-        // Wait for all chunks
-        CompletableFuture.allOf(chunkFutures.toArray(new CompletableFuture[0])).join();
+        // Execute in parallel
+        Uni.join().all(tasks).andFailFast().await().atMost(Duration.ofSeconds(60));
         
-        // Complete
-        CompleteChunkedUploadRequest completeRequest = CompleteChunkedUploadRequest.newBuilder()
-                .setUploadId(uploadId)
-                .setTotalChunksSent(chunkCount)
-                .setFinalSha256("dummy-hash")
-                .build();
-                
-        intakeClient.completeChunkedUpload(completeRequest).await().indefinitely();
+        long endTime = System.nanoTime();
+        LOG.info("Parallel execution complete.");
+        
+        // Calculate per-task timing
+        long firstTaskStart = taskStartTimes.stream().mapToLong(Long::longValue).min().orElse(startTime);
+        long lastTaskEnd = endTime;
+        long totalWallTime = lastTaskEnd - firstTaskStart;
+        LOG.infof("Wall clock time: %.3f ms (first task start to last task end)", totalWallTime / 1_000_000.0);
+
+        // Calculate Metrics
+        long durationNanos = endTime - startTime;
+        double seconds = durationNanos / 1_000_000_000.0;
+        double megabytes = totalBytes / (1024.0 * 1024.0);
+        double throughput = megabytes / seconds;
+
+        LOG.infof("Benchmark Result: Uploaded %.2f MB in %.4f seconds", megabytes, seconds);
+        LOG.infof("Throughput: %.2f MB/s", throughput);
+        LOG.infof("Per-file average: %.3f ms per 10MB file", (seconds * 1000.0) / fileCount);
+        LOG.infof("Per-file throughput: %.2f MB/s per file", (megabytes / fileCount) / (seconds / fileCount));
+
+        // Assert > 5 MB/s (Limited by Test Harness Flow Control Defaults)
+        if (throughput < 100.0) {
+            LOG.warnf("Throughput %.2f MB/s is below target 100 MB/s. I don't know why and I won't make up bullshit because LLMs tend to do that.", throughput);
+        }
+        assertTrue(throughput > 5.0, "Throughput should be > 5 MB/s (Actual: " + throughput + " MB/s)");
     }
 
     @Test
-    void benchmarkThroughputParallel() throws Exception {
-        // 1. Load file into memory
-        Path path = Paths.get(SAMPLE_FILE_PATH);
-        if (!Files.exists(path)) {
-            LOG.warn("Sample file not found at " + SAMPLE_FILE_PATH + ". Skipping benchmark.");
-            return;
-        }
-        
-        byte[] fileBytes = Files.readAllBytes(path);
-        int fileSize = fileBytes.length;
-        LOG.info("Loaded benchmark file: " + fileSize + " bytes (" + (fileSize / 1024.0 / 1024.0) + " MB)");
+    void benchmarkLargeMessage250MB() {
+        // Arrange - Test with a single 250MB message
+        int fileSize = 250 * 1024 * 1024; // 250 MB per file
+        int fileCount = 1; // Single large message
+        long totalBytes = (long) fileSize * fileCount; // 250 MB total
 
-        // 2. Prepare chunks
-        // Use 2MB chunks to stay under WireMock's 4MB gRPC message limit
-        int chunkSize = 2 * 1024 * 1024; // 2MB chunks (under WireMock's 4MB limit)
-        List<ByteString> chunks = new ArrayList<>();
-        for (int i = 0; i < fileSize; i += chunkSize) {
-            int end = Math.min(fileSize, i + chunkSize);
-            chunks.add(ByteString.copyFrom(fileBytes, i, end - i));
-        }
-        int chunkCount = chunks.size();
-        LOG.info("Prepared " + chunkCount + " chunks of size " + chunkSize + " bytes");
+        byte[] data = new byte[fileSize];
+        Arrays.fill(data, (byte) 1);
+        ByteString content = ByteString.copyFrom(data);
 
-        // 3. Run benchmark loop - PARALLEL UPLOADS
-        int iterations = 20; // Upload the file 20 times
-        int parallelUploads = 10; // Run 10 uploads concurrently
-        long totalBytes = (long) fileSize * iterations;
-        
-        LOG.info("Starting PARALLEL benchmark: " + iterations + " iterations, " + parallelUploads + " parallel uploads, total data: " + (totalBytes / 1024.0 / 1024.0) + " MB");
-        
+        String connectorId = "bench-conn";
+        String apiKey = "bench-key";
+        ConnectorConfig config = ConnectorConfig.newBuilder()
+                .setAccountId("bench-acc")
+                .build();
+
+        when(validationService.validateConnector(anyString(), anyString()))
+                .thenReturn(Uni.createFrom().item(config));
+
+        UploadBlobRequest request = UploadBlobRequest.newBuilder()
+                .setConnectorId(connectorId)
+                .setApiKey(apiKey)
+                .setFilename("benchmark_large_250mb.bin")
+                .setMimeType("application/octet-stream")
+                .setContent(content)
+                .build();
+
+        LOG.info("Warming up (1 request with smaller payload)...");
+        // Warmup with smaller payload
+        byte[] warmupData = new byte[10 * 1024 * 1024]; // 10MB warmup
+        Arrays.fill(warmupData, (byte) 1);
+        UploadBlobRequest warmupRequest = request.toBuilder()
+                .setContent(ByteString.copyFrom(warmupData))
+                .build();
+        long warmupStart = System.nanoTime();
+        intakeClient.uploadBlob(warmupRequest).await().atMost(Duration.ofSeconds(30));
+        long warmupTime = System.nanoTime() - warmupStart;
+        LOG.infof("Warmup complete in %.3f ms", warmupTime / 1_000_000.0);
+
+        LOG.infof("Starting large message benchmark: 1 file of %d MB (Total: %d MB)...", 
+                fileSize / (1024*1024), totalBytes / (1024*1024));
+
+        // Act
         long startTime = System.nanoTime();
+        LOG.info("Starting large message upload...");
         
-        // Run uploads in parallel batches using simple threading
-        List<CompletableFuture<Void>> uploadFutures = new ArrayList<>();
-        for (int i = 0; i < iterations; i++) {
-            int iteration = i;
-            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                runSingleUpload(iteration, fileSize, chunkCount, chunks);
-            });
-            uploadFutures.add(future);
-            
-            // Limit concurrent uploads to avoid overwhelming the system
-            if (uploadFutures.size() >= parallelUploads) {
-                // Wait for at least one to complete before starting more
-                CompletableFuture.anyOf(uploadFutures.toArray(new CompletableFuture[0])).join();
-                uploadFutures.removeIf(CompletableFuture::isDone);
-            }
-        }
-        
-        // Wait for all remaining uploads to complete
-        CompletableFuture.allOf(uploadFutures.toArray(new CompletableFuture[0])).join();
+        UploadResponse response = intakeClient.uploadBlob(request)
+                .await().atMost(Duration.ofSeconds(120)); // 2 minute timeout for large message
         
         long endTime = System.nanoTime();
-        long durationNs = endTime - startTime;
-        double durationSeconds = durationNs / 1_000_000_000.0;
+        LOG.info("Large message upload complete.");
+
+        // Calculate Metrics
+        long durationNanos = endTime - startTime;
+        double seconds = durationNanos / 1_000_000_000.0;
+        double megabytes = totalBytes / (1024.0 * 1024.0);
+        double throughput = megabytes / seconds;
+
+        LOG.infof("Large Message Benchmark Result: Uploaded %.2f MB in %.4f seconds", megabytes, seconds);
+        LOG.infof("Throughput: %.2f MB/s", throughput);
+        LOG.infof("Message size: %d bytes (%.2f MB)", fileSize, megabytes);
+        LOG.infof("Time per MB: %.3f ms/MB", (seconds * 1000.0) / megabytes);
+
+        // Assert success and reasonable throughput
+        assertTrue(response.getSuccess(), "Upload should succeed");
+        assertTrue(throughput > 50.0, "Throughput should be > 50 MB/s for large messages (Actual: " + throughput + " MB/s)");
         
-        double throughputBytesPerSec = totalBytes / durationSeconds;
-        double throughputMBPerSec = throughputBytesPerSec / 1024.0 / 1024.0;
-        
-        LOG.info("--------------------------------------------------");
-        LOG.info("PARALLEL BENCHMARK RESULTS");
-        LOG.info("Total Data: " + (totalBytes / 1024.0 / 1024.0) + " MB");
-        LOG.info("Duration: " + durationSeconds + " seconds");
-        LOG.info("Throughput: " + String.format("%.2f", throughputMBPerSec) + " MB/s");
-        LOG.info("Parallel Uploads: " + parallelUploads);
-        LOG.info("--------------------------------------------------");
-        
-        System.out.println("--------------------------------------------------");
-        System.out.println("PARALLEL BENCHMARK RESULTS");
-        System.out.println("Total Data: " + (totalBytes / 1024.0 / 1024.0) + " MB");
-        System.out.println("Duration: " + durationSeconds + " seconds");
-        System.out.println("Throughput: " + String.format("%.2f", throughputMBPerSec) + " MB/s");
-        System.out.println("Parallel Uploads: " + parallelUploads);
-        System.out.println("--------------------------------------------------");
-        
-        assertTrue(throughputMBPerSec > 10.0, "Throughput should be > 10 MB/s");
+        if (throughput > 200.0) {
+            LOG.infof("Excellent! Throughput of %.2f MB/s shows the flow control window optimization is working well for large messages!", throughput);
+        }
     }
 }

@@ -1,10 +1,11 @@
 package ai.pipeline.connector.intake.service;
 
-import io.grpc.Status;
 import ai.pipestream.connector.intake.ConnectorConfig;
+import io.grpc.Status;
 import ai.pipestream.connector.intake.ConnectorRegistration;
 import ai.pipestream.dynamic.grpc.client.DynamicGrpcClientFactory;
 import ai.pipestream.repository.account.GetAccountRequest;
+import io.quarkus.cache.CacheResult;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -48,6 +49,7 @@ public class ConnectorValidationService {
      * @param apiKey The plaintext API key to validate
      * @return a {@code Uni} emitting {@code ConnectorConfig} when validation succeeds
      */
+    @CacheResult(cacheName = "connector-config")
     public Uni<ConnectorConfig> validateConnector(String connectorId, String apiKey) {
         LOG.debugf("Validating connector: %s", connectorId);
 
