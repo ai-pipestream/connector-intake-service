@@ -1,13 +1,12 @@
 package ai.pipeline.connector.intake.service;
 
-import ai.pipestream.connector.intake.ConnectorConfig;
-import ai.pipestream.connector.intake.UploadBlobRequest;
-import ai.pipestream.connector.intake.UploadPipeDocRequest;
+import ai.pipestream.connector.intake.v1.ConnectorConfig;
+import ai.pipestream.connector.intake.v1.UploadBlobRequest;
+import ai.pipestream.connector.intake.v1.UploadPipeDocRequest;
 import ai.pipestream.data.v1.BlobBag;
 import ai.pipestream.data.v1.PipeDoc;
 import ai.pipestream.data.v1.SearchMetadata;
-import ai.pipestream.repository.filesystem.upload.NodeUploadService;
-import ai.pipestream.connector.intake.UploadResponse;
+import ai.pipestream.repository.v1.filesystem.upload.NodeUploadService;
 import com.google.protobuf.ByteString;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
@@ -48,8 +47,8 @@ class ConnectorIntakeServiceTest {
                 .setPipeDoc(PipeDoc.newBuilder().build())
                 .build();
 
-        ai.pipestream.repository.filesystem.upload.UploadResponse repoResponse = 
-            ai.pipestream.repository.filesystem.upload.UploadResponse.newBuilder()
+        ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocResponse repoResponse =
+            ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocResponse.newBuilder()
                 .setSuccess(true)
                 .setDocumentId("doc-1")
                 .setMessage("OK")
@@ -60,7 +59,7 @@ class ConnectorIntakeServiceTest {
         // No repoServiceMock – request will be handled by MockRepositoryService via real Netty channel
 
         // Act
-        UploadResponse response = intakeService.uploadPipeDoc(request).await().indefinitely();
+        ai.pipestream.connector.intake.v1.UploadPipeDocResponse response = intakeService.uploadPipeDoc(request).await().indefinitely();
 
         // Assert
         assertTrue(response.getSuccess());
@@ -87,8 +86,8 @@ class ConnectorIntakeServiceTest {
                 .putMetadata("key1", "val1")
                 .build();
 
-        ai.pipestream.repository.filesystem.upload.UploadResponse repoResponse = 
-            ai.pipestream.repository.filesystem.upload.UploadResponse.newBuilder()
+        ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocResponse repoResponse =
+            ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocResponse.newBuilder()
                 .setSuccess(true)
                 .setDocumentId("doc-2")
                 .setMessage("OK")
@@ -99,7 +98,7 @@ class ConnectorIntakeServiceTest {
         // No repoServiceMock – request will be handled by MockRepositoryService via real Netty channel
 
         // Act
-        UploadResponse response = intakeService.uploadBlob(request).await().indefinitely();
+        ai.pipestream.connector.intake.v1.UploadBlobResponse response = intakeService.uploadBlob(request).await().indefinitely();
 
         // Assert
         assertTrue(response.getSuccess());

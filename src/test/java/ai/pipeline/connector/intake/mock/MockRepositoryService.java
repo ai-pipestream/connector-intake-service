@@ -1,9 +1,11 @@
 package ai.pipeline.connector.intake.mock;
 
 import ai.pipestream.data.v1.PipeDoc;
-import ai.pipestream.repository.filesystem.upload.GetDocumentRequest;
-import ai.pipestream.repository.filesystem.upload.MutinyNodeUploadServiceGrpc;
-import ai.pipestream.repository.filesystem.upload.UploadResponse;
+import ai.pipestream.repository.v1.filesystem.upload.GetDocumentRequest;
+import ai.pipestream.repository.v1.filesystem.upload.GetDocumentResponse;
+import ai.pipestream.repository.v1.filesystem.upload.MutinyNodeUploadServiceGrpc;
+import ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocRequest;
+import ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocResponse;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
 import jakarta.inject.Singleton;
@@ -23,29 +25,30 @@ public class MockRepositoryService extends MutinyNodeUploadServiceGrpc.NodeUploa
     private static final Logger LOG = Logger.getLogger(MockRepositoryService.class);
 
     @Override
-    public Uni<UploadResponse> uploadPipeDoc(PipeDoc request) {
+    public Uni<UploadPipeDocResponse> uploadPipeDoc(UploadPipeDocRequest request) {
         long startTime = System.nanoTime();
-        int requestSize = request.getSerializedSize();
+        PipeDoc doc = request.getDocument();
+        int requestSize = doc.getSerializedSize();
         LOG.debugf("MockRepositoryService.uploadPipeDoc START: size=%d bytes", requestSize);
-        
+
         return Uni.createFrom().item(() -> {
             long buildStart = System.nanoTime();
-            UploadResponse response = UploadResponse.newBuilder()
+            UploadPipeDocResponse response = UploadPipeDocResponse.newBuilder()
                     .setSuccess(true)
                     .setDocumentId("mock-doc-" + UUID.randomUUID())
-                    .setS3Key("mock/s3/key/" + request.getSearchMetadata().getSourcePath())
+                    .setS3Key("mock/s3/key/" + doc.getSearchMetadata().getSourcePath())
                     .setMessage("Mock upload successful")
                     .build();
             long buildTime = System.nanoTime() - buildStart;
             long totalTime = System.nanoTime() - startTime;
-            LOG.debugf("MockRepositoryService.uploadPipeDoc: build took %.3f ms, TOTAL=%.3f ms", 
+            LOG.debugf("MockRepositoryService.uploadPipeDoc: build took %.3f ms, TOTAL=%.3f ms",
                     buildTime / 1_000_000.0, totalTime / 1_000_000.0);
             return response;
         });
     }
 
     @Override
-    public Uni<PipeDoc> getDocument(GetDocumentRequest request) {
+    public Uni<GetDocumentResponse> getDocument(GetDocumentRequest request) {
         return Uni.createFrom().failure(new UnsupportedOperationException("Not implemented in mock"));
     }
 }

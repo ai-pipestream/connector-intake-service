@@ -1,23 +1,25 @@
 package ai.pipeline.connector.intake.service;
 
-import ai.pipestream.connector.intake.MutinyConnectorIntakeServiceGrpc;
-import ai.pipestream.connector.intake.UploadPipeDocRequest;
-import ai.pipestream.connector.intake.UploadBlobRequest;
-import ai.pipestream.connector.intake.UploadResponse;
-import ai.pipestream.connector.intake.StartCrawlSessionRequest;
-import ai.pipestream.connector.intake.StartCrawlSessionResponse;
-import ai.pipestream.connector.intake.EndCrawlSessionRequest;
-import ai.pipestream.connector.intake.EndCrawlSessionResponse;
-import ai.pipestream.connector.intake.HeartbeatRequest;
-import ai.pipestream.connector.intake.HeartbeatResponse;
-import ai.pipestream.connector.intake.ConnectorConfig;
+import ai.pipestream.connector.intake.v1.MutinyConnectorIntakeServiceGrpc;
+import ai.pipestream.connector.intake.v1.UploadPipeDocRequest;
+import ai.pipestream.connector.intake.v1.UploadPipeDocResponse;
+import ai.pipestream.connector.intake.v1.UploadBlobRequest;
+import ai.pipestream.connector.intake.v1.UploadBlobResponse;
+import ai.pipestream.connector.intake.v1.StartCrawlSessionRequest;
+import ai.pipestream.connector.intake.v1.StartCrawlSessionResponse;
+import ai.pipestream.connector.intake.v1.EndCrawlSessionRequest;
+import ai.pipestream.connector.intake.v1.EndCrawlSessionResponse;
+import ai.pipestream.connector.intake.v1.HeartbeatRequest;
+import ai.pipestream.connector.intake.v1.HeartbeatResponse;
+import ai.pipestream.connector.intake.v1.ConnectorConfig;
 import ai.pipestream.data.v1.PipeDoc;
 import ai.pipestream.data.v1.Blob;
 import ai.pipestream.data.v1.BlobBag;
 import ai.pipestream.data.v1.SearchMetadata;
-import ai.pipestream.dynamic.grpc.client.GrpcClientProvider;
-import ai.pipestream.repository.filesystem.upload.MutinyNodeUploadServiceGrpc;
-import ai.pipestream.repository.filesystem.upload.NodeUploadService;
+import ai.pipestream.quarkus.dynamicgrpc.GrpcClientFactory;
+import ai.pipestream.repository.v1.filesystem.upload.MutinyNodeUploadServiceGrpc;
+import ai.pipestream.repository.v1.filesystem.upload.NodeUploadService;
+// Repository UploadPipeDocResponse conflicts with connector.intake.v1.UploadPipeDocResponse - use fully qualified names
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
 import jakarta.inject.Inject;
@@ -54,7 +56,7 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
     ConnectorValidationService validationService;
 
     @Inject
-    GrpcClientProvider grpcClientProvider;
+    GrpcClientFactory grpcClientProvider;
 
     @ConfigProperty(name = "quarkus.grpc.clients.repo-service.host", defaultValue = "localhost")
     String repoServiceHost;
@@ -137,11 +139,16 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                         }
                     }
                     
-                    // Use direct host/port connection (channel is cached by GrpcClientProvider)
-                    // For service discovery, use: grpcClientProvider.getClientForService(MutinyNodeUploadServiceGrpc.MutinyNodeUploadServiceStub.class, "repo-service")
-                    repoService = grpcClientProvider.getClient(MutinyNodeUploadServiceGrpc.MutinyNodeUploadServiceStub.class, repoServiceHost, port);
-                    LOG.infof("Initialized repo-service client using dynamic-grpc at %s:%d (with proper flow control window)", 
-                            repoServiceHost, port);
+                    // Use dynamic connection via host:port
+                    // Build a static:// URI for the channel since we have host:port config
+                    String serviceUri = "static://" + repoServiceHost + ":" + port;
+                    // For now, create a simple channel and wrap it - in future we could use service discovery
+                    repoService = MutinyNodeUploadServiceGrpc.newMutinyStub(
+                        io.grpc.ManagedChannelBuilder.forTarget(serviceUri)
+                            .usePlaintext()
+                            .build()
+                    );
+                    LOG.infof("Initialized repo-service client at %s:%d", repoServiceHost, port);
                 }
             }
         }
@@ -149,17 +156,24 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
     }
 
     @Override
-    public Uni<UploadResponse> uploadPipeDoc(UploadPipeDocRequest request) {
+    public Uni<UploadPipeDocResponse> uploadPipeDoc(UploadPipeDocRequest request) {
         return validationService.validateConnector(request.getConnectorId(), request.getApiKey())
-            .flatMap(config -> getRepoService().uploadPipeDoc(request.getPipeDoc()))
-            .map(repoResponse -> UploadResponse.newBuilder()
+            .flatMap(config -> {
+                // Create repository upload request
+                ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocRequest repoRequest =
+                    ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocRequest.newBuilder()
+                        .setDocument(request.getPipeDoc())
+                        .build();
+                return getRepoService().uploadPipeDoc(repoRequest);
+            })
+            .map(repoResponse -> ai.pipestream.connector.intake.v1.UploadPipeDocResponse.newBuilder()
                 .setSuccess(repoResponse.getSuccess())
                 .setDocId(repoResponse.getDocumentId())
                 .setMessage(repoResponse.getMessage())
                 .build())
             .onFailure().recoverWithItem(throwable -> {
                 LOG.errorf(throwable, "Failed to upload PipeDoc");
-                return UploadResponse.newBuilder()
+                return ai.pipestream.connector.intake.v1.UploadPipeDocResponse.newBuilder()
                     .setSuccess(false)
                     .setMessage(throwable.getMessage())
                     .build();
@@ -167,7 +181,7 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
     }
 
     @Override
-    public Uni<UploadResponse> uploadBlob(UploadBlobRequest request) {
+    public Uni<UploadBlobResponse> uploadBlob(UploadBlobRequest request) {
         long startTime = System.nanoTime();
         int requestSize = request.getSerializedSize();
         LOG.debugf("uploadBlob START: size=%d bytes", requestSize);
@@ -215,7 +229,12 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
             .flatMap(pipeDoc -> {
                 long repoCallStart = System.nanoTime();
                 LOG.debugf("uploadBlob: calling repoService.uploadPipeDoc");
-                return getRepoService().uploadPipeDoc(pipeDoc)
+                // Create repository upload request
+                ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocRequest repoRequest =
+                    ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocRequest.newBuilder()
+                        .setDocument(pipeDoc)
+                        .build();
+                return getRepoService().uploadPipeDoc(repoRequest)
                     .invoke(() -> {
                         long repoCallTime = System.nanoTime() - repoCallStart;
                         LOG.debugf("uploadBlob: repoService call took %.3f ms", repoCallTime / 1_000_000.0);
@@ -223,7 +242,7 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
             })
             .map(repoResponse -> {
                 long mapStart = System.nanoTime();
-                UploadResponse response = UploadResponse.newBuilder()
+                UploadBlobResponse response = UploadBlobResponse.newBuilder()
                     .setSuccess(repoResponse.getSuccess())
                     .setDocId(repoResponse.getDocumentId())
                     .setMessage(repoResponse.getMessage())
@@ -236,7 +255,7 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
             .onFailure().recoverWithItem(throwable -> {
                 long totalTime = System.nanoTime() - startTime;
                 LOG.errorf(throwable, "Failed to upload Blob after %.3f ms", totalTime / 1_000_000.0);
-                return UploadResponse.newBuilder()
+                return UploadBlobResponse.newBuilder()
                     .setSuccess(false)
                     .setMessage(throwable.getMessage())
                     .build();

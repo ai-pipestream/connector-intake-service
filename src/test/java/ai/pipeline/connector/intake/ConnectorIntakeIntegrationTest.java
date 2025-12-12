@@ -1,7 +1,7 @@
 package ai.pipeline.connector.intake;
 
 import ai.pipeline.connector.intake.service.ConnectorValidationService;
-import ai.pipestream.connector.intake.*;
+import ai.pipestream.connector.intake.v1.*;
 import ai.pipestream.data.v1.PipeDoc;
 import com.google.protobuf.ByteString;
 import io.quarkus.test.InjectMock;
@@ -46,7 +46,7 @@ public class ConnectorIntakeIntegrationTest {
                 .build();
 
         // Act
-        UploadResponse response = intakeClient.uploadBlob(request)
+        UploadBlobResponse response = intakeClient.uploadBlob(request)
                 .await().atMost(Duration.ofSeconds(5));
 
         // Assert
@@ -74,7 +74,7 @@ public class ConnectorIntakeIntegrationTest {
                 .build();
 
         // Act
-        UploadResponse response = intakeClient.uploadPipeDoc(request)
+        UploadPipeDocResponse response = intakeClient.uploadPipeDoc(request)
                 .await().atMost(Duration.ofSeconds(5));
 
         // Assert

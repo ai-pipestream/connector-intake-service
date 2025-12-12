@@ -4,9 +4,10 @@ import com.google.protobuf.Any;
 import com.google.protobuf.BytesValue;
 import com.google.protobuf.ByteString;
 import io.grpc.Status;
-import ai.pipestream.dynamic.grpc.client.DynamicGrpcClientFactory;
-import ai.pipestream.repository.filesystem.CreateNodeRequest;
-import ai.pipestream.repository.filesystem.Node;
+import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
+import ai.pipestream.repository.v1.filesystem.CreateNodeRequest;
+import ai.pipestream.repository.v1.filesystem.Node;
+import ai.pipestream.repository.v1.filesystem.MutinyFilesystemServiceGrpc;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -76,14 +77,15 @@ public class RepositoryClient {
             .setContentType(contentType)
             .setPayload(Any.pack(BytesValue.of(ByteString.copyFrom(data))))
             .setMetadata(metadataJson)
-            .setType(Node.NodeType.FILE)
+            .setType(Node.NodeType.NODE_TYPE_FILE)
             .build();
 
-        return grpcClientFactory.getFilesystemServiceClient(REPOSITORY_SERVICE_NAME)
+        return grpcClientFactory.getClient(REPOSITORY_SERVICE_NAME, MutinyFilesystemServiceGrpc::newMutinyStub)
             .flatMap(stub -> stub.createNode(request))
             .map(response -> {
-                // Return the document ID from the response (repository-service may have modified it)
-                String actualDocumentId = response.getDocumentId();
+                // Return the document ID from the response node
+                Node node = response.getNode();
+                String actualDocumentId = node.getDocumentId();
                 LOG.debugf("Document stored successfully: id=%s", actualDocumentId);
                 return actualDocumentId;
             })

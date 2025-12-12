@@ -10,16 +10,15 @@ dependencyResolutionManagement {
     versionCatalogs {
         libs {
             // Import version catalog from published BOM
-            from("ai.pipestream:pipeline-bom-catalog:0.2.7")
+            from("ai.pipestream:pipestream-bom-catalog:0.7.2")
         }
     }
 
     repositories {
-        // Prefer Maven Central but allow locally published releases and snapshots for development
+        // Maven Local for local development (releases only for ai.pipestream)
         mavenLocal {
             mavenContent {
                 releasesOnly()
-                snapshotsOnly()
             }
             content {
                 includeGroupByRegex "ai\\.pipestream(\\..*)?"
@@ -39,11 +38,18 @@ dependencyResolutionManagement {
 
         // GitHub Packages for ai.pipestream catalog and dependencies
         def githubToken = providers.environmentVariable("GITHUB_TOKEN")
-        if (githubToken.isPresent()) {
+            .orElse(providers.gradleProperty("gpr.key"))
+            .orElse(providers.environmentVariable("GPR_TOKEN"))
+
+        def githubActor = providers.environmentVariable("GITHUB_ACTOR")
+            .orElse(providers.gradleProperty("gpr.user"))
+            .orElse(providers.environmentVariable("GPR_USER"))
+
+        if (githubToken.isPresent() && githubActor.isPresent()) {
             maven {
                 url = uri("https://maven.pkg.github.com/ai-pipestream/bom")
                 credentials {
-                    username = providers.environmentVariable("GITHUB_ACTOR").getOrElse("github-actions")
+                    username = githubActor.get()
                     password = githubToken.get()
                 }
                 content {

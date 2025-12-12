@@ -1,7 +1,7 @@
 package ai.pipeline.connector.intake.service;
 
-import ai.pipestream.connector.intake.UploadBlobRequest;
-import ai.pipestream.connector.intake.UploadPipeDocRequest;
+import ai.pipestream.connector.intake.v1.UploadBlobRequest;
+import ai.pipestream.connector.intake.v1.UploadPipeDocRequest;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.jboss.logging.Logger;

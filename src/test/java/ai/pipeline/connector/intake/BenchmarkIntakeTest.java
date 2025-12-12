@@ -1,13 +1,11 @@
 package ai.pipeline.connector.intake;
 
-import ai.pipeline.connector.intake.config.RepositoryServiceTestResource;
 import ai.pipeline.connector.intake.service.ConnectorValidationService;
-import ai.pipestream.connector.intake.*;
+import ai.pipestream.connector.intake.v1.*;
 import com.google.protobuf.ByteString;
 import io.quarkus.grpc.GrpcClient;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
-import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.smallrye.mutiny.Uni;
 import org.jboss.logging.Logger;
@@ -26,7 +24,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 @QuarkusTest
-@QuarkusTestResource(RepositoryServiceTestResource.class)
 public class BenchmarkIntakeTest {
 
     private static final Logger LOG = Logger.getLogger(BenchmarkIntakeTest.class);
@@ -103,7 +100,7 @@ public class BenchmarkIntakeTest {
         
         // Measure request building time
         long buildStart = System.nanoTime();
-        List<Uni<UploadResponse>> tasks = new ArrayList<>();
+        List<Uni<UploadBlobResponse>> tasks = new ArrayList<>();
         List<Long> taskStartTimes = new ArrayList<>();
         for (int i = 0; i < fileCount; i++) {
             long taskStart = System.nanoTime();
@@ -198,8 +195,8 @@ public class BenchmarkIntakeTest {
         // Act
         long startTime = System.nanoTime();
         LOG.info("Starting large message upload...");
-        
-        UploadResponse response = intakeClient.uploadBlob(request)
+
+        UploadBlobResponse response = intakeClient.uploadBlob(request)
                 .await().atMost(Duration.ofSeconds(120)); // 2 minute timeout for large message
         
         long endTime = System.nanoTime();

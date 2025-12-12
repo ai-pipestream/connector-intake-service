@@ -1,10 +1,12 @@
 package ai.pipeline.connector.intake.service;
 
-import ai.pipestream.connector.intake.ConnectorConfig;
+import ai.pipestream.connector.intake.v1.ConnectorConfig;
 import io.grpc.Status;
-import ai.pipestream.connector.intake.ConnectorRegistration;
-import ai.pipestream.dynamic.grpc.client.DynamicGrpcClientFactory;
-import ai.pipestream.repository.account.GetAccountRequest;
+import ai.pipestream.connector.intake.v1.ConnectorRegistration;
+import ai.pipestream.connector.intake.v1.MutinyConnectorAdminServiceGrpc;
+import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
+import ai.pipestream.repository.v1.account.GetAccountRequest;
+import ai.pipestream.repository.v1.account.MutinyAccountServiceGrpc;
 import io.quarkus.cache.CacheResult;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -58,9 +60,9 @@ public class ConnectorValidationService {
     public Uni<ConnectorConfig> validateConnector(String connectorId, String apiKey) {
         LOG.debugf("Validating connector: %s", connectorId);
 
-        return grpcClientFactory.getConnectorAdminServiceClient(CONNECTOR_SERVICE_NAME)
+        return grpcClientFactory.getClient(CONNECTOR_SERVICE_NAME, MutinyConnectorAdminServiceGrpc::newMutinyStub)
             .flatMap(stub -> stub.validateApiKey(
-                ai.pipestream.connector.intake.ValidateApiKeyRequest.newBuilder()
+                ai.pipestream.connector.intake.v1.ValidateApiKeyRequest.newBuilder()
                     .setConnectorId(connectorId)
                     .setApiKey(apiKey)
                     .build()
@@ -97,13 +99,14 @@ public class ConnectorValidationService {
     private Uni<Void> validateAccountActive(String accountId) {
         LOG.debugf("Validating account is active: %s", accountId);
 
-        return grpcClientFactory.getAccountServiceClient(ACCOUNT_SERVICE_NAME)
+        return grpcClientFactory.getClient(ACCOUNT_SERVICE_NAME, MutinyAccountServiceGrpc::newMutinyStub)
             .flatMap(stub -> stub.getAccount(
                 GetAccountRequest.newBuilder()
                     .setAccountId(accountId)
                     .build()
             ))
-            .flatMap(account -> {
+            .flatMap(response -> {
+                ai.pipestream.repository.v1.account.Account account = response.getAccount();
                 if (!account.getActive()) {
                     LOG.warnf("Account %s exists but is inactive", accountId);
                     return Uni.createFrom().failure(
