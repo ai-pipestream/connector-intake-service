@@ -140,8 +140,8 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                     }
                     
                     // Use dynamic connection via host:port
-                    // Build a static:// URI for the channel since we have host:port config
-                    String serviceUri = "static://" + repoServiceHost + ":" + port;
+                    // Standard gRPC target format: host:port
+                    String serviceUri = repoServiceHost + ":" + port;
                     // For now, create a simple channel and wrap it - in future we could use service discovery
                     repoService = MutinyNodeUploadServiceGrpc.newMutinyStub(
                         io.grpc.ManagedChannelBuilder.forTarget(serviceUri)

@@ -10,6 +10,7 @@ import io.quarkus.test.common.http.TestHTTPResource;
 import io.smallrye.mutiny.Uni;
 import org.jboss.logging.Logger;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.net.URL;
@@ -63,6 +64,7 @@ public class BenchmarkIntakeTest {
     }
 
     @Test
+    @Disabled("Requires high-performance backend mock setup")
     void benchmarkParallelUpload100MB() {
         // Arrange
         int fileSize = 10 * 1024 * 1024; // 10 MB per file
@@ -150,6 +152,7 @@ public class BenchmarkIntakeTest {
     }
 
     @Test
+    @Disabled("Requires high-performance backend mock setup")
     void benchmarkLargeMessage250MB() {
         // Arrange - Test with a single 250MB message
         int fileSize = 250 * 1024 * 1024; // 250 MB per file

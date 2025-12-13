@@ -5,6 +5,7 @@ import ai.pipestream.connector.intake.v1.*;
 import ai.pipestream.data.v1.PipeDoc;
 import com.google.protobuf.ByteString;
 import io.quarkus.test.InjectMock;
+import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.grpc.GrpcClient;
 import io.smallrye.mutiny.Uni;
@@ -17,6 +18,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 @QuarkusTest
+@QuarkusTestResource(WireMockTestResource.class)
 public class ConnectorIntakeIntegrationTest {
 
     @GrpcClient("connector-intake-service")

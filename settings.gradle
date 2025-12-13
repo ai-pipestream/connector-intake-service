@@ -10,7 +10,9 @@ dependencyResolutionManagement {
     versionCatalogs {
         libs {
             // Import version catalog from published BOM
-            from("ai.pipestream:pipestream-bom-catalog:0.7.2")
+            // Available on Maven Central and GitHub Packages
+            // Version controlled via gradle.properties
+            from("ai.pipestream:pipestream-bom-catalog:0.7.3")
         }
     }
 
