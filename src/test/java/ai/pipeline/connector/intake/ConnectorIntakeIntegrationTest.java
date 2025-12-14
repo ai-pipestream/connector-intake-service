@@ -44,7 +44,7 @@ public class ConnectorIntakeIntegrationTest {
                 .setApiKey(apiKey)
                 .setFilename("test.txt")
                 .setMimeType("text/plain")
-                .setContent(ByteString.copyFromUtf8("Hello World"))
+                .setContent(ByteString.copyFromUtf8("Hello World")) // This is very small
                 .build();
 
         // Act

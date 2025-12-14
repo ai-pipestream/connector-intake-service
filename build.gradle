@@ -113,6 +113,7 @@ dependencies {
     // Service discovery and registration (matches connector-service baseline)
     implementation 'io.quarkus:quarkus-smallrye-stork'
     implementation 'io.smallrye.stork:stork-service-discovery-consul'
+    // Note: stork-service-discovery-static-list is provided transitively by quarkus-dynamic-grpc
     implementation 'io.smallrye.reactive:smallrye-mutiny-vertx-consul-client'
 
     // Pipeline libraries (published to Maven Local)
