@@ -126,9 +126,18 @@ tasks.withType(Javadoc).configureEach { task ->
     opts.encoding = 'UTF-8'
     opts.charSet = 'UTF-8'
     opts.locale = 'en'
+    // Protobuf/gRPC generated sources often contain Javadoc patterns that trigger doclint warnings.
+    // We don't want these warnings (or doclint strictness) to fail or spam service builds.
+    task.failOnError = false
+    opts.addStringOption('Xdoclint:none', '-quiet')
+
     // Whitelist only application source packages (exclude generated gRPC/protobuf sources)
     include '**/ai/pipeline/connector/**'
     include '**/ai/pipestream/connector/**'
+
+    // Extra safety: proto-toolchain adds generated sources under build/generated/** which can
+    // share application packages and still match the includes above.
+    exclude '**/generated/source/proto/**'
 }
 
 // Publishing configuration
