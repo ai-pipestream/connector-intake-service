@@ -11,4 +11,5 @@ jobs:
     uses: ai-pipestream/.github/.github/workflows/reusable-service-build.yml@main
     with:
       docker-image-name: connector-intake-service
+      dockerfile-path: src/main/docker/Dockerfile.jvm
     secrets: inherit
