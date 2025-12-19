@@ -5,7 +5,7 @@ import com.google.protobuf.BytesValue;
 import com.google.protobuf.ByteString;
 import io.grpc.Status;
 import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
-import ai.pipestream.repository.v1.filesystem.CreateNodeRequest;
+import ai.pipestream.repository.v1.filesystem.CreateFilesystemNodeRequest;
 import ai.pipestream.repository.v1.filesystem.Node;
 import ai.pipestream.repository.v1.filesystem.MutinyFilesystemServiceGrpc;
 import io.smallrye.mutiny.Uni;
@@ -21,6 +21,7 @@ import java.util.UUID;
  * <p>
  * Handles document storage via repository-service's CreateNode RPC.
  */
+@SuppressWarnings("unused")
 @ApplicationScoped
 public class RepositoryClient {
 
@@ -66,8 +67,8 @@ public class RepositoryClient {
         // Build metadata JSON
         String metadataJson = buildMetadataJson(metadata);
 
-        // Build CreateNodeRequest
-        CreateNodeRequest request = CreateNodeRequest.newBuilder()
+        // Build CreateFilesystemNodeRequest
+        CreateFilesystemNodeRequest request = CreateFilesystemNodeRequest.newBuilder()
             .setDrive(drive)
             .setDocumentId(documentId)
             .setConnectorId(connectorId)
@@ -81,7 +82,7 @@ public class RepositoryClient {
             .build();
 
         return grpcClientFactory.getClient(REPOSITORY_SERVICE_NAME, MutinyFilesystemServiceGrpc::newMutinyStub)
-            .flatMap(stub -> stub.createNode(request))
+            .flatMap(stub -> stub.createFilesystemNode(request))
             .map(response -> {
                 // Return the document ID from the response node
                 Node node = response.getNode();
@@ -91,10 +92,9 @@ public class RepositoryClient {
             })
             .onFailure(io.grpc.StatusRuntimeException.class)
             .transform(throwable -> {
-                io.grpc.StatusRuntimeException sre = (io.grpc.StatusRuntimeException) throwable;
-                LOG.errorf(sre, "Failed to store document: name=%s", name);
+                LOG.errorf((io.grpc.StatusRuntimeException) throwable, "Failed to store document: name=%s", name);
                 return Status.INTERNAL
-                    .withDescription("Failed to store document: " + sre.getMessage())
+                    .withDescription("Failed to store document: " + ((io.grpc.StatusRuntimeException) throwable).getMessage())
                     .asRuntimeException();
             });
     }

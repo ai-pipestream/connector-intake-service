@@ -11,14 +11,12 @@ import ai.pipestream.connector.intake.v1.EndCrawlSessionRequest;
 import ai.pipestream.connector.intake.v1.EndCrawlSessionResponse;
 import ai.pipestream.connector.intake.v1.HeartbeatRequest;
 import ai.pipestream.connector.intake.v1.HeartbeatResponse;
-import ai.pipestream.connector.intake.v1.ConnectorConfig;
 import ai.pipestream.data.v1.PipeDoc;
 import ai.pipestream.data.v1.Blob;
 import ai.pipestream.data.v1.BlobBag;
 import ai.pipestream.data.v1.SearchMetadata;
 import ai.pipestream.quarkus.dynamicgrpc.GrpcClientFactory;
 import ai.pipestream.repository.v1.filesystem.upload.MutinyNodeUploadServiceGrpc;
-// Repository UploadPipeDocResponse conflicts with connector.intake.v1.UploadPipeDocResponse - use fully qualified names
 import com.google.protobuf.Timestamp;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
@@ -29,8 +27,6 @@ import org.jboss.logging.Logger;
 import java.time.Instant;
 import java.util.UUID;
 
-@Singleton
-@GrpcService
 /**
  * gRPC service implementation handling connector ingestion endpoints.
  * <p>
@@ -44,6 +40,8 @@ import java.util.UUID;
  * This class is stateful only with respect to a lazily-initialized repository
  * upload stub; all other operations are request-scoped and reactive.
  */
+@Singleton
+@GrpcService
 public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc.ConnectorIntakeServiceImplBase {
 
     private static final Logger LOG = Logger.getLogger(ConnectorIntakeServiceImpl.class);
@@ -64,13 +62,13 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
         return validationService.validateConnector(request.getConnectorId(), request.getApiKey())
             .flatMap(config -> {
                 // Create repository upload request
-                ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocRequest repoRequest =
-                    ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocRequest.newBuilder()
+                ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocRequest repoRequest =
+                    ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocRequest.newBuilder()
                         .setDocument(request.getPipeDoc())
                         .build();
                 // Use GrpcClientFactory for proper service discovery and channel configuration
                 return grpcClientFactory.getClient("repo-service", MutinyNodeUploadServiceGrpc::newMutinyStub)
-                    .flatMap(stub -> stub.uploadPipeDoc(repoRequest));
+                    .flatMap(stub -> stub.uploadFilesystemPipeDoc(repoRequest));
             })
             .map(repoResponse -> ai.pipestream.connector.intake.v1.UploadPipeDocResponse.newBuilder()
                 .setSuccess(repoResponse.getSuccess())
@@ -136,13 +134,13 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                 long repoCallStart = System.nanoTime();
                 LOG.debugf("uploadBlob: calling repo-service.uploadPipeDoc via GrpcClientFactory");
                 // Create repository upload request
-                ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocRequest repoRequest =
-                    ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocRequest.newBuilder()
+                ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocRequest repoRequest =
+                    ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocRequest.newBuilder()
                         .setDocument(pipeDoc)
                         .build();
                 // Use GrpcClientFactory for proper service discovery and channel configuration
                 return grpcClientFactory.getClient("repo-service", MutinyNodeUploadServiceGrpc::newMutinyStub)
-                    .flatMap(stub -> stub.uploadPipeDoc(repoRequest))
+                    .flatMap(stub -> stub.uploadFilesystemPipeDoc(repoRequest))
                     .invoke(() -> {
                         long repoCallTime = System.nanoTime() - repoCallStart;
                         LOG.debugf("uploadBlob: repo-service call took %.3f ms", repoCallTime / 1_000_000.0);

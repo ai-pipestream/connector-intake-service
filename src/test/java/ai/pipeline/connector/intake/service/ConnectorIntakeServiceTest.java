@@ -3,22 +3,16 @@ package ai.pipeline.connector.intake.service;
 import ai.pipestream.connector.intake.v1.ConnectorConfig;
 import ai.pipestream.connector.intake.v1.UploadBlobRequest;
 import ai.pipestream.connector.intake.v1.UploadPipeDocRequest;
-import ai.pipestream.data.v1.BlobBag;
 import ai.pipestream.data.v1.PipeDoc;
-import ai.pipestream.data.v1.SearchMetadata;
-import ai.pipestream.repository.v1.filesystem.upload.NodeUploadService;
 import com.google.protobuf.ByteString;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.junit.QuarkusTest;
-import io.quarkus.grpc.GrpcClient;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @QuarkusTest
@@ -47,8 +41,8 @@ class ConnectorIntakeServiceTest {
                 .setPipeDoc(PipeDoc.newBuilder().build())
                 .build();
 
-        ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocResponse repoResponse =
-            ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocResponse.newBuilder()
+        ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocResponse repoResponse =
+            ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocResponse.newBuilder()
                 .setSuccess(true)
                 .setDocumentId("doc-1")
                 .setMessage("OK")
@@ -86,8 +80,8 @@ class ConnectorIntakeServiceTest {
                 .putMetadata("key1", "val1")
                 .build();
 
-        ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocResponse repoResponse =
-            ai.pipestream.repository.v1.filesystem.upload.UploadPipeDocResponse.newBuilder()
+        ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocResponse repoResponse =
+            ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocResponse.newBuilder()
                 .setSuccess(true)
                 .setDocumentId("doc-2")
                 .setMessage("OK")
