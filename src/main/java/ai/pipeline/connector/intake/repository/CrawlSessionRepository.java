@@ -31,26 +31,26 @@ public class CrawlSessionRepository implements PanacheRepository<CrawlSession> {
     }
 
     /**
-     * Find a session by connector ID and crawl ID.
+     * Find a session by datasource ID and crawl ID.
      *
-     * @param connectorId connector identifier
+     * @param datasourceId datasource identifier
      * @param crawlId client-provided crawl identifier
      * @return an {@code Optional} with the {@code CrawlSession} if found; otherwise empty
      */
-    public Optional<CrawlSession> findByConnectorAndCrawl(String connectorId, String crawlId) {
+    public Optional<CrawlSession> findByDatasourceAndCrawl(String datasourceId, String crawlId) {
         return Optional.ofNullable(
-            find("connectorId = ?1 AND crawlId = ?2", connectorId, crawlId).firstResult()
+            find("datasourceId = ?1 AND crawlId = ?2", datasourceId, crawlId).firstResult()
         );
     }
 
     /**
-     * Find all sessions for a connector.
+     * Find all sessions for a datasource.
      *
-     * @param connectorId connector identifier
-     * @return list of sessions owned by the connector (possibly empty)
+     * @param datasourceId datasource identifier
+     * @return list of sessions owned by the datasource (possibly empty)
      */
-    public List<CrawlSession> findByConnectorId(String connectorId) {
-        return find("connectorId", connectorId).list();
+    public List<CrawlSession> findByDatasourceId(String datasourceId) {
+        return find("datasourceId", datasourceId).list();
     }
 
     /**

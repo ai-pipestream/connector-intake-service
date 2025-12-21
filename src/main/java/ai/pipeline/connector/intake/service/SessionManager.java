@@ -36,12 +36,12 @@ public class SessionManager {
     /**
      * Create a new crawl session.
      * <p>
-     * If a session already exists for the same {@code connectorId} and {@code crawlId}, the existing session ID is
+     * If a session already exists for the same {@code datasourceId} and {@code crawlId}, the existing session ID is
      * returned. Otherwise, a new session is persisted in the database and its ID is returned.
      * Reactive semantics: executes on the default worker pool due to blocking persistence.
      * Side effects: inserts a row into the {@code crawl_session} table.
      *
-     * @param connectorId Connector ID
+     * @param datasourceId DataSource ID
      * @param crawlId Client-provided crawl ID
      * @param accountId Account ID
      * @param connectorType Connector type
@@ -51,22 +51,22 @@ public class SessionManager {
      * @param deleteOrphans Whether to delete orphans at end
      * @return a {@code Uni} emitting the session ID (existing or newly created)
      */
-    public Uni<String> createSession(String connectorId, String crawlId, String accountId,
+    public Uni<String> createSession(String datasourceId, String crawlId, String accountId,
                                      String connectorType, String sourceSystem, String metadata,
                                      boolean trackDocuments, boolean deleteOrphans) {
-        LOG.infof("Creating crawl session: connector=%s, crawl=%s", connectorId, crawlId);
+        LOG.infof("Creating crawl session: datasource=%s, crawl=%s", datasourceId, crawlId);
 
         // Check if session already exists
         return Uni.createFrom().item(() -> {
-            var existing = sessionRepository.findByConnectorAndCrawl(connectorId, crawlId);
+            var existing = sessionRepository.findByDatasourceAndCrawl(datasourceId, crawlId);
             if (existing.isPresent()) {
-                LOG.warnf("Session already exists for connector=%s, crawl=%s", connectorId, crawlId);
+                LOG.warnf("Session already exists for datasource=%s, crawl=%s", datasourceId, crawlId);
                 return existing.get().id;
             }
 
             // Create new session
             String sessionId = UUID.randomUUID().toString();
-            CrawlSession session = new CrawlSession(sessionId, connectorId, crawlId, accountId, "RUNNING");
+            CrawlSession session = new CrawlSession(sessionId, datasourceId, crawlId, accountId, "RUNNING");
             session.connectorType = connectorType;
             session.sourceSystem = sourceSystem;
             session.metadata = metadata;
@@ -88,7 +88,7 @@ public class SessionManager {
                 hibernateSession.close();
             }
 
-            LOG.infof("Created crawl session: id=%s, connector=%s, crawl=%s", sessionId, connectorId, crawlId);
+            LOG.infof("Created crawl session: id=%s, datasource=%s, crawl=%s", sessionId, datasourceId, crawlId);
             return sessionId;
         })
         .runSubscriptionOn(Infrastructure.getDefaultWorkerPool());

@@ -29,11 +29,11 @@ public class CrawlSession extends PanacheEntityBase {
     public String id;
 
     /**
-     * Connector ID that started this session.
-     * References connector-service (not enforced cross-DB).
+     * DataSource ID that started this session.
+     * References datasource-admin service (not enforced cross-DB).
      */
     @Column(name = "datasource_id", length = 100, nullable = false)
-    public String connectorId;
+    public String datasourceId;
 
     /**
      * Client-provided crawl ID.
@@ -133,7 +133,7 @@ public class CrawlSession extends PanacheEntityBase {
     /**
      * Crawl metadata as JSON.
      */
-    @Column(name = "metadata", columnDefinition = "JSON")
+    @Column(name = "metadata", columnDefinition = "JSONB")
     public String metadata;
 
     /**
@@ -145,14 +145,14 @@ public class CrawlSession extends PanacheEntityBase {
      * Create a new crawl session.
      *
      * @param id Session ID (UUID)
-     * @param connectorId Connector ID
+     * @param datasourceId DataSource ID
      * @param crawlId Client-provided crawl ID
      * @param accountId Account ID
      * @param state Initial state
      */
-    public CrawlSession(String id, String connectorId, String crawlId, String accountId, String state) {
+    public CrawlSession(String id, String datasourceId, String crawlId, String accountId, String state) {
         this.id = id;
-        this.connectorId = connectorId;
+        this.datasourceId = datasourceId;
         this.crawlId = crawlId;
         this.accountId = accountId;
         this.state = state;
