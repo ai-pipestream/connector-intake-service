@@ -32,15 +32,15 @@ public class ConnectorIntakeIntegrationTest {
         // Arrange
         String connectorId = "test-conn-1";
         String apiKey = "test-key-1";
-        ConnectorConfig config = ConnectorConfig.newBuilder()
+        DataSourceConfig config = DataSourceConfig.newBuilder()
                 .setAccountId("acc-1")
                 .build();
 
-        when(validationService.validateConnector(anyString(), anyString()))
+        when(validationService.validateDataSource(anyString(), anyString()))
                 .thenReturn(Uni.createFrom().item(config));
 
         UploadBlobRequest request = UploadBlobRequest.newBuilder()
-                .setConnectorId(connectorId)
+                .setDatasourceId(connectorId)
                 .setApiKey(apiKey)
                 .setFilename("test.txt")
                 .setMimeType("text/plain")
@@ -62,15 +62,15 @@ public class ConnectorIntakeIntegrationTest {
         // Arrange
         String connectorId = "test-conn-2";
         String apiKey = "test-key-2";
-        ConnectorConfig config = ConnectorConfig.newBuilder()
+        DataSourceConfig config = DataSourceConfig.newBuilder()
                 .setAccountId("acc-2")
                 .build();
 
-        when(validationService.validateConnector(anyString(), anyString()))
+        when(validationService.validateDataSource(anyString(), anyString()))
                 .thenReturn(Uni.createFrom().item(config));
 
         UploadPipeDocRequest request = UploadPipeDocRequest.newBuilder()
-                .setConnectorId(connectorId)
+                .setDatasourceId(connectorId)
                 .setApiKey(apiKey)
                 .setPipeDoc(PipeDoc.newBuilder().build())
                 .build();

@@ -1,15 +1,14 @@
 package ai.pipeline.connector.intake.service;
 
-import ai.pipestream.connector.intake.v1.ConnectorConfig;
-import ai.pipestream.connector.intake.v1.ConnectorRegistration;
-import ai.pipestream.connector.intake.v1.MutinyConnectorAdminServiceGrpc;
+import ai.pipestream.connector.intake.v1.DataSourceConfig;
+import ai.pipestream.connector.intake.v1.MutinyDataSourceAdminServiceGrpc;
 import ai.pipestream.connector.intake.v1.ValidateApiKeyRequest;
 import ai.pipestream.connector.intake.v1.ValidateApiKeyResponse;
 import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
-import ai.pipestream.repository.v1.account.Account;
-import ai.pipestream.repository.v1.account.GetAccountRequest;
-import ai.pipestream.repository.v1.account.GetAccountResponse;
-import ai.pipestream.repository.v1.account.MutinyAccountServiceGrpc;
+import ai.pipestream.repository.account.v1.Account;
+import ai.pipestream.repository.account.v1.GetAccountRequest;
+import ai.pipestream.repository.account.v1.GetAccountResponse;
+import ai.pipestream.repository.account.v1.MutinyAccountServiceGrpc;
 import io.grpc.Status;
 import io.quarkus.cache.CacheManager;
 import io.quarkus.test.InjectMock;
@@ -18,7 +17,6 @@ import io.smallrye.mutiny.Uni;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentMatchers;
 
 import java.util.concurrent.ExecutionException;
 
@@ -44,44 +42,44 @@ class ConnectorValidationServiceTest {
     @InjectMock
     DynamicGrpcClientFactory grpcClientFactory;
 
-    private MutinyConnectorAdminServiceGrpc.MutinyConnectorAdminServiceStub connectorAdminStub;
+    private MutinyDataSourceAdminServiceGrpc.MutinyDataSourceAdminServiceStub datasourceAdminStub;
     private MutinyAccountServiceGrpc.MutinyAccountServiceStub accountServiceStub;
 
     @BeforeEach
     void setUp() throws ExecutionException, InterruptedException {
         // Clear cache before each test
-        cacheManager.getCache("connector-config").orElseThrow().invalidateAll().await().indefinitely();
+        cacheManager.getCache("datasource-config").orElseThrow().invalidateAll().await().indefinitely();
 
         // Create mock stubs
-        connectorAdminStub = mock(MutinyConnectorAdminServiceGrpc.MutinyConnectorAdminServiceStub.class);
+        datasourceAdminStub = mock(MutinyDataSourceAdminServiceGrpc.MutinyDataSourceAdminServiceStub.class);
         accountServiceStub = mock(MutinyAccountServiceGrpc.MutinyAccountServiceStub.class);
 
         // Configure factory to return mock stubs
-        when(grpcClientFactory.getClient(eq("connector-service"), any()))
-                .thenReturn(Uni.createFrom().item(connectorAdminStub));
+        when(grpcClientFactory.getClient(eq("datasource-admin"), any()))
+                .thenReturn(Uni.createFrom().item(datasourceAdminStub));
         when(grpcClientFactory.getClient(eq("account-manager"), any()))
                 .thenReturn(Uni.createFrom().item(accountServiceStub));
     }
 
     @Test
-    void validateConnector_success_cachesResult() {
+    void validateDataSource_success_cachesResult() {
         // Arrange
-        String connectorId = "valid-connector";
+        String datasourceId = "valid-datasource";
         String apiKey = "valid-api-key";
         String accountId = "valid-account";
 
-        ConnectorRegistration connector = ConnectorRegistration.newBuilder()
-                .setConnectorId(connectorId)
+        DataSourceConfig config = DataSourceConfig.newBuilder()
+                .setDatasourceId(datasourceId)
                 .setAccountId(accountId)
-                .setS3Bucket("test-bucket")
-                .setS3BasePath("/test/path")
+                .setConnectorId("s3")
+                .setDriveName("test-drive")
                 .setMaxFileSize(1000000)
                 .setRateLimitPerMinute(100)
                 .build();
 
         ValidateApiKeyResponse validateResponse = ValidateApiKeyResponse.newBuilder()
                 .setValid(true)
-                .setConnector(connector)
+                .setConfig(config)
                 .build();
 
         Account account = Account.newBuilder()
@@ -94,26 +92,26 @@ class ConnectorValidationServiceTest {
                 .setAccount(account)
                 .build();
 
-        when(connectorAdminStub.validateApiKey(any(ValidateApiKeyRequest.class)))
+        when(datasourceAdminStub.validateApiKey(any(ValidateApiKeyRequest.class)))
                 .thenReturn(Uni.createFrom().item(validateResponse));
         when(accountServiceStub.getAccount(any(GetAccountRequest.class)))
                 .thenReturn(Uni.createFrom().item(accountResponse));
 
         // Act & Assert - First call (cache miss)
-        ConnectorConfig config1 = connectorValidationService.validateConnector(connectorId, apiKey).await().indefinitely();
+        DataSourceConfig config1 = connectorValidationService.validateDataSource(datasourceId, apiKey).await().indefinitely();
         assertNotNull(config1);
         assertEquals(accountId, config1.getAccountId());
 
         // Act & Assert - Second call (cache hit - mocks won't be called again)
-        ConnectorConfig config2 = connectorValidationService.validateConnector(connectorId, apiKey).await().indefinitely();
+        DataSourceConfig config2 = connectorValidationService.validateDataSource(datasourceId, apiKey).await().indefinitely();
         assertNotNull(config2);
         assertEquals(accountId, config2.getAccountId());
     }
 
     @Test
-    void validateConnector_invalidApiKey_throwsUnauthenticated() {
+    void validateDataSource_invalidApiKey_throwsUnauthenticated() {
         // Arrange
-        String connectorId = "valid-connector";
+        String datasourceId = "valid-datasource";
         String apiKey = "invalid-api-key";
 
         ValidateApiKeyResponse validateResponse = ValidateApiKeyResponse.newBuilder()
@@ -121,31 +119,31 @@ class ConnectorValidationServiceTest {
                 .setMessage("Invalid API key")
                 .build();
 
-        when(connectorAdminStub.validateApiKey(any(ValidateApiKeyRequest.class)))
+        when(datasourceAdminStub.validateApiKey(any(ValidateApiKeyRequest.class)))
                 .thenReturn(Uni.createFrom().item(validateResponse));
 
         // Act & Assert
         io.grpc.StatusRuntimeException exception = assertThrows(io.grpc.StatusRuntimeException.class, () -> {
-            connectorValidationService.validateConnector(connectorId, apiKey).await().indefinitely();
+            connectorValidationService.validateDataSource(datasourceId, apiKey).await().indefinitely();
         });
         assertEquals(Status.Code.UNAUTHENTICATED, exception.getStatus().getCode());
     }
 
     @Test
-    void validateConnector_inactiveAccount_throwsPermissionDenied() {
+    void validateDataSource_inactiveAccount_throwsPermissionDenied() {
         // Arrange
-        String connectorId = "inactive-account-connector";
+        String datasourceId = "inactive-account-datasource";
         String apiKey = "inactive-account-key";
         String accountId = "inactive-account";
 
-        ConnectorRegistration connector = ConnectorRegistration.newBuilder()
-                .setConnectorId(connectorId)
+        DataSourceConfig config = DataSourceConfig.newBuilder()
+                .setDatasourceId(datasourceId)
                 .setAccountId(accountId)
                 .build();
 
         ValidateApiKeyResponse validateResponse = ValidateApiKeyResponse.newBuilder()
                 .setValid(true)
-                .setConnector(connector)
+                .setConfig(config)
                 .build();
 
         Account account = Account.newBuilder()
@@ -158,36 +156,36 @@ class ConnectorValidationServiceTest {
                 .setAccount(account)
                 .build();
 
-        when(connectorAdminStub.validateApiKey(any(ValidateApiKeyRequest.class)))
+        when(datasourceAdminStub.validateApiKey(any(ValidateApiKeyRequest.class)))
                 .thenReturn(Uni.createFrom().item(validateResponse));
         when(accountServiceStub.getAccount(any(GetAccountRequest.class)))
                 .thenReturn(Uni.createFrom().item(accountResponse));
 
         // Act & Assert
         io.grpc.StatusRuntimeException exception = assertThrows(io.grpc.StatusRuntimeException.class, () -> {
-            connectorValidationService.validateConnector(connectorId, apiKey).await().indefinitely();
+            connectorValidationService.validateDataSource(datasourceId, apiKey).await().indefinitely();
         });
         assertEquals(Status.Code.PERMISSION_DENIED, exception.getStatus().getCode());
     }
 
     @Test
-    void validateConnector_accountNotFound_throwsPermissionDenied() {
+    void validateDataSource_accountNotFound_throwsPermissionDenied() {
         // Arrange
-        String connectorId = "missing-account-connector";
+        String datasourceId = "missing-account-datasource";
         String apiKey = "missing-account-key";
         String accountId = "nonexistent-account";
 
-        ConnectorRegistration connector = ConnectorRegistration.newBuilder()
-                .setConnectorId(connectorId)
+        DataSourceConfig config = DataSourceConfig.newBuilder()
+                .setDatasourceId(datasourceId)
                 .setAccountId(accountId)
                 .build();
 
         ValidateApiKeyResponse validateResponse = ValidateApiKeyResponse.newBuilder()
                 .setValid(true)
-                .setConnector(connector)
+                .setConfig(config)
                 .build();
 
-        when(connectorAdminStub.validateApiKey(any(ValidateApiKeyRequest.class)))
+        when(datasourceAdminStub.validateApiKey(any(ValidateApiKeyRequest.class)))
                 .thenReturn(Uni.createFrom().item(validateResponse));
         when(accountServiceStub.getAccount(any(GetAccountRequest.class)))
                 .thenReturn(Uni.createFrom().failure(
@@ -195,7 +193,7 @@ class ConnectorValidationServiceTest {
 
         // Act & Assert
         io.grpc.StatusRuntimeException exception = assertThrows(io.grpc.StatusRuntimeException.class, () -> {
-            connectorValidationService.validateConnector(connectorId, apiKey).await().indefinitely();
+            connectorValidationService.validateDataSource(datasourceId, apiKey).await().indefinitely();
         });
         assertEquals(Status.Code.PERMISSION_DENIED, exception.getStatus().getCode());
     }

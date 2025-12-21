@@ -32,7 +32,7 @@ public class CrawlSession extends PanacheEntityBase {
      * Connector ID that started this session.
      * References connector-service (not enforced cross-DB).
      */
-    @Column(name = "connector_id", length = 100, nullable = false)
+    @Column(name = "datasource_id", length = 100, nullable = false)
     public String connectorId;
 
     /**

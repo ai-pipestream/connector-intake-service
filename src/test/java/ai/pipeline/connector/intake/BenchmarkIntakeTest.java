@@ -85,15 +85,15 @@ public class BenchmarkIntakeTest {
 
         String connectorId = "bench-conn";
         String apiKey = "bench-key";
-        ConnectorConfig config = ConnectorConfig.newBuilder()
+        DataSourceConfig config = DataSourceConfig.newBuilder()
                 .setAccountId("bench-acc")
                 .build();
 
-        when(validationService.validateConnector(anyString(), anyString()))
+        when(validationService.validateDataSource(anyString(), anyString()))
                 .thenReturn(Uni.createFrom().item(config));
 
         UploadBlobRequest request = UploadBlobRequest.newBuilder()
-                .setConnectorId(connectorId)
+                .setDatasourceId(connectorId)
                 .setApiKey(apiKey)
                 .setFilename("benchmark_parallel.bin")
                 .setMimeType("application/octet-stream")
@@ -174,15 +174,15 @@ public class BenchmarkIntakeTest {
 
         String connectorId = "bench-conn";
         String apiKey = "bench-key";
-        ConnectorConfig config = ConnectorConfig.newBuilder()
+        DataSourceConfig config = DataSourceConfig.newBuilder()
                 .setAccountId("bench-acc")
                 .build();
 
-        when(validationService.validateConnector(anyString(), anyString()))
+        when(validationService.validateDataSource(anyString(), anyString()))
                 .thenReturn(Uni.createFrom().item(config));
 
         UploadBlobRequest request = UploadBlobRequest.newBuilder()
-                .setConnectorId(connectorId)
+                .setDatasourceId(connectorId)
                 .setApiKey(apiKey)
                 .setFilename("benchmark_large.bin")
                 .setMimeType("application/octet-stream")

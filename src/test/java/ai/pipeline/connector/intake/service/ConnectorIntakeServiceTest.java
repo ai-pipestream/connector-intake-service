@@ -1,6 +1,6 @@
 package ai.pipeline.connector.intake.service;
 
-import ai.pipestream.connector.intake.v1.ConnectorConfig;
+import ai.pipestream.connector.intake.v1.DataSourceConfig;
 import ai.pipestream.connector.intake.v1.UploadBlobRequest;
 import ai.pipestream.connector.intake.v1.UploadPipeDocRequest;
 import ai.pipestream.data.v1.PipeDoc;
@@ -33,22 +33,22 @@ class ConnectorIntakeServiceTest {
         // Arrange
         String connectorId = "test-conn";
         String apiKey = "test-key";
-        ConnectorConfig config = ConnectorConfig.newBuilder().setAccountId("acc-1").build();
+        DataSourceConfig config = DataSourceConfig.newBuilder().setAccountId("acc-1").build();
 
         UploadPipeDocRequest request = UploadPipeDocRequest.newBuilder()
-                .setConnectorId(connectorId)
+                .setDatasourceId(connectorId)
                 .setApiKey(apiKey)
                 .setPipeDoc(PipeDoc.newBuilder().build())
                 .build();
 
-        ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocResponse repoResponse =
-            ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocResponse.newBuilder()
+        ai.pipestream.repository.filesystem.upload.v1.UploadFilesystemPipeDocResponse repoResponse =
+            ai.pipestream.repository.filesystem.upload.v1.UploadFilesystemPipeDocResponse.newBuilder()
                 .setSuccess(true)
                 .setDocumentId("doc-1")
                 .setMessage("OK")
                 .build();
 
-        when(validationService.validateConnector(connectorId, apiKey))
+        when(validationService.validateDataSource(connectorId, apiKey))
                 .thenReturn(Uni.createFrom().item(config));
         // No repoServiceMock – request will be handled by MockRepositoryService via real Netty channel
 
@@ -58,7 +58,7 @@ class ConnectorIntakeServiceTest {
         // Assert
         assertTrue(response.getSuccess());
         assertFalse(response.getDocId().isEmpty());
-        verify(validationService).validateConnector(connectorId, apiKey);
+        verify(validationService).validateDataSource(connectorId, apiKey);
     }
 
     @Test
@@ -67,11 +67,11 @@ class ConnectorIntakeServiceTest {
         String connectorId = "test-conn";
         String apiKey = "test-key";
         String accountId = "acc-1";
-        ConnectorConfig config = ConnectorConfig.newBuilder().setAccountId(accountId).build();
+        DataSourceConfig config = DataSourceConfig.newBuilder().setAccountId(accountId).build();
 
         ByteString content = ByteString.copyFromUtf8("hello world");
         UploadBlobRequest request = UploadBlobRequest.newBuilder()
-                .setConnectorId(connectorId)
+                .setDatasourceId(connectorId)
                 .setApiKey(apiKey)
                 .setFilename("test.txt")
                 .setMimeType("text/plain")
@@ -80,14 +80,14 @@ class ConnectorIntakeServiceTest {
                 .putMetadata("key1", "val1")
                 .build();
 
-        ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocResponse repoResponse =
-            ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocResponse.newBuilder()
+        ai.pipestream.repository.filesystem.upload.v1.UploadFilesystemPipeDocResponse repoResponse =
+            ai.pipestream.repository.filesystem.upload.v1.UploadFilesystemPipeDocResponse.newBuilder()
                 .setSuccess(true)
                 .setDocumentId("doc-2")
                 .setMessage("OK")
                 .build();
 
-        when(validationService.validateConnector(connectorId, apiKey))
+        when(validationService.validateDataSource(connectorId, apiKey))
                 .thenReturn(Uni.createFrom().item(config));
         // No repoServiceMock – request will be handled by MockRepositoryService via real Netty channel
 

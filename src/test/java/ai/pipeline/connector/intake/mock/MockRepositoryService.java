@@ -1,11 +1,11 @@
 package ai.pipeline.connector.intake.mock;
 
 import ai.pipestream.data.v1.PipeDoc;
-import ai.pipestream.repository.v1.filesystem.upload.GetUploadedDocumentRequest;
-import ai.pipestream.repository.v1.filesystem.upload.GetUploadedDocumentResponse;
-import ai.pipestream.repository.v1.filesystem.upload.MutinyNodeUploadServiceGrpc;
-import ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocRequest;
-import ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocResponse;
+import ai.pipestream.repository.filesystem.upload.v1.GetUploadedDocumentRequest;
+import ai.pipestream.repository.filesystem.upload.v1.GetUploadedDocumentResponse;
+import ai.pipestream.repository.filesystem.upload.v1.MutinyNodeUploadServiceGrpc;
+import ai.pipestream.repository.filesystem.upload.v1.UploadFilesystemPipeDocRequest;
+import ai.pipestream.repository.filesystem.upload.v1.UploadFilesystemPipeDocResponse;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
 import jakarta.inject.Singleton;

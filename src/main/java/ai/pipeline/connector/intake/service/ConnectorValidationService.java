@@ -1,12 +1,12 @@
 package ai.pipeline.connector.intake.service;
 
-import ai.pipestream.connector.intake.v1.ConnectorConfig;
+import ai.pipestream.connector.intake.v1.DataSourceConfig;
 import io.grpc.Status;
-import ai.pipestream.connector.intake.v1.ConnectorRegistration;
-import ai.pipestream.connector.intake.v1.MutinyConnectorAdminServiceGrpc;
+import ai.pipestream.connector.intake.v1.DataSource;
+import ai.pipestream.connector.intake.v1.MutinyDataSourceAdminServiceGrpc;
 import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
-import ai.pipestream.repository.v1.account.GetAccountRequest;
-import ai.pipestream.repository.v1.account.MutinyAccountServiceGrpc;
+import ai.pipestream.repository.account.v1.GetAccountRequest;
+import ai.pipestream.repository.account.v1.MutinyAccountServiceGrpc;
 import io.quarkus.cache.CacheResult;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -25,7 +25,7 @@ import org.jboss.logging.Logger;
 public class ConnectorValidationService {
 
     private static final Logger LOG = Logger.getLogger(ConnectorValidationService.class);
-    private static final String CONNECTOR_SERVICE_NAME = "connector-service";
+    private static final String DATASOURCE_SERVICE_NAME = "datasource-admin";
     private static final String ACCOUNT_SERVICE_NAME = "account-manager";
 
     /**
@@ -37,39 +37,39 @@ public class ConnectorValidationService {
     DynamicGrpcClientFactory grpcClientFactory;
 
     /**
-     * Validate a connector's API key and fetch its configuration.
+     * Validate a datasource's API key and fetch its configuration.
      * <p>
      * Behavior:
      * <ul>
-     *   <li>Discovers and calls connector-service to validate the API key and retrieve connector metadata.</li>
+     *   <li>Discovers and calls datasource-admin to validate the API key and retrieve datasource config.</li>
      *   <li>Then verifies the owning account exists and is active via account-service.</li>
      * </ul>
      * Reactive semantics:
      * <ul>
-     *   <li>Returns a {@code Uni<ConnectorConfig>} that emits on completion of two remote gRPC calls.</li>
+     *   <li>Returns a {@code Uni<DataSourceConfig>} that emits on completion of two remote gRPC calls.</li>
      *   <li>Authentication failures are mapped to {@code io.grpc.StatusRuntimeException} with {@code UNAUTHENTICATED}.</li>
      *   <li>Missing or inactive accounts are mapped to {@code PERMISSION_DENIED}.</li>
      * </ul>
-     * Side effects: network calls to connector-service and account-service.
+     * Side effects: network calls to datasource-admin and account-service.
      *
-     * @param connectorId The connector ID
+     * @param datasourceId The datasource ID
      * @param apiKey The plaintext API key to validate
-     * @return a {@code Uni} emitting {@code ConnectorConfig} when validation succeeds
+     * @return a {@code Uni} emitting {@code DataSourceConfig} when validation succeeds
      */
-    @CacheResult(cacheName = "connector-config")
-    public Uni<ConnectorConfig> validateConnector(String connectorId, String apiKey) {
-        LOG.debugf("Validating connector: %s", connectorId);
+    @CacheResult(cacheName = "datasource-config")
+    public Uni<DataSourceConfig> validateDataSource(String datasourceId, String apiKey) {
+        LOG.debugf("Validating datasource: %s", datasourceId);
 
-        return grpcClientFactory.getClient(CONNECTOR_SERVICE_NAME, MutinyConnectorAdminServiceGrpc::newMutinyStub)
+        return grpcClientFactory.getClient(DATASOURCE_SERVICE_NAME, MutinyDataSourceAdminServiceGrpc::newMutinyStub)
             .flatMap(stub -> stub.validateApiKey(
                 ai.pipestream.connector.intake.v1.ValidateApiKeyRequest.newBuilder()
-                    .setConnectorId(connectorId)
+                    .setDatasourceId(datasourceId)
                     .setApiKey(apiKey)
                     .build()
             ))
             .flatMap(response -> {
                 if (!response.getValid()) {
-                    LOG.warnf("API key validation failed for connector %s: %s", connectorId, response.getMessage());
+                    LOG.warnf("API key validation failed for datasource %s: %s", datasourceId, response.getMessage());
                     return Uni.createFrom().failure(
                         Status.UNAUTHENTICATED
                             .withDescription(response.getMessage())
@@ -77,18 +77,17 @@ public class ConnectorValidationService {
                     );
                 }
 
-                ConnectorRegistration connector = response.getConnector();
-                LOG.debugf("Connector %s validated successfully", connectorId);
+                DataSourceConfig config = response.getConfig();
+                LOG.debugf("Datasource %s validated successfully", datasourceId);
 
                 // Validate account is active
-                return validateAccountActive(connector.getAccountId())
-                    .replaceWith(connector);
+                return validateAccountActive(config.getAccountId())
+                    .replaceWith(config);
             })
-            .map(this::toConnectorConfig)
             .onFailure(io.grpc.StatusRuntimeException.class)
             .transform(throwable -> {
                 io.grpc.StatusRuntimeException sre = (io.grpc.StatusRuntimeException) throwable;
-                LOG.errorf(sre, "Failed to validate connector %s", connectorId);
+                LOG.errorf(sre, "Failed to validate datasource %s", datasourceId);
                 return sre;
             });
     }
@@ -106,7 +105,7 @@ public class ConnectorValidationService {
                     .build()
             ))
             .flatMap(response -> {
-                ai.pipestream.repository.v1.account.Account account = response.getAccount();
+                ai.pipestream.repository.account.v1.Account account = response.getAccount();
                 if (!account.getActive()) {
                     LOG.warnf("Account %s exists but is inactive", accountId);
                     return Uni.createFrom().failure(
@@ -132,17 +131,4 @@ public class ConnectorValidationService {
             });
     }
 
-    /**
-     * Convert ConnectorRegistration proto to ConnectorConfig.
-     */
-    private ConnectorConfig toConnectorConfig(ConnectorRegistration connector) {
-        return ConnectorConfig.newBuilder()
-            .setAccountId(connector.getAccountId())
-            .setS3Bucket(connector.getS3Bucket())
-            .setS3BasePath(connector.getS3BasePath())
-            .setMaxFileSize(connector.getMaxFileSize())
-            .setRateLimitPerMinute(connector.getRateLimitPerMinute())
-            .putAllDefaultMetadata(connector.getDefaultMetadataMap())
-            .build();
-    }
 }

@@ -16,7 +16,7 @@ import ai.pipestream.data.v1.Blob;
 import ai.pipestream.data.v1.BlobBag;
 import ai.pipestream.data.v1.SearchMetadata;
 import ai.pipestream.quarkus.dynamicgrpc.GrpcClientFactory;
-import ai.pipestream.repository.v1.filesystem.upload.MutinyNodeUploadServiceGrpc;
+import ai.pipestream.repository.filesystem.upload.v1.MutinyNodeUploadServiceGrpc;
 import com.google.protobuf.Timestamp;
 import io.quarkus.grpc.GrpcService;
 import io.smallrye.mutiny.Uni;
@@ -59,11 +59,11 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
 
     @Override
     public Uni<UploadPipeDocResponse> uploadPipeDoc(UploadPipeDocRequest request) {
-        return validationService.validateConnector(request.getConnectorId(), request.getApiKey())
+        return validationService.validateDataSource(request.getDatasourceId(), request.getApiKey())
             .flatMap(config -> {
                 // Create repository upload request
-                ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocRequest repoRequest =
-                    ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocRequest.newBuilder()
+                ai.pipestream.repository.filesystem.upload.v1.UploadFilesystemPipeDocRequest repoRequest =
+                    ai.pipestream.repository.filesystem.upload.v1.UploadFilesystemPipeDocRequest.newBuilder()
                         .setDocument(request.getPipeDoc())
                         .build();
                 // Use GrpcClientFactory for proper service discovery and channel configuration
@@ -90,7 +90,7 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
         int requestSize = request.getSerializedSize();
         LOG.debugf("uploadBlob START: size=%d bytes", requestSize);
         
-        return validationService.validateConnector(request.getConnectorId(), request.getApiKey())
+        return validationService.validateDataSource(request.getDatasourceId(), request.getApiKey())
             .invoke(() -> {
                 long validationTime = System.nanoTime() - startTime;
                 LOG.debugf("uploadBlob: validation took %.3f ms", validationTime / 1_000_000.0);
@@ -115,7 +115,7 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                     .setProcessedDate(timestamp)
                     .setSourcePath(request.getPath())
                     .putAllMetadata(request.getMetadataMap())
-                    .putMetadata("connector_id", request.getConnectorId())
+                    .putMetadata("datasource_id", request.getDatasourceId())
                     .putMetadata("account_id", config.getAccountId())
                     .build();
 
@@ -134,8 +134,8 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                 long repoCallStart = System.nanoTime();
                 LOG.debugf("uploadBlob: calling repo-service.uploadPipeDoc via GrpcClientFactory");
                 // Create repository upload request
-                ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocRequest repoRequest =
-                    ai.pipestream.repository.v1.filesystem.upload.UploadFilesystemPipeDocRequest.newBuilder()
+                ai.pipestream.repository.filesystem.upload.v1.UploadFilesystemPipeDocRequest repoRequest =
+                    ai.pipestream.repository.filesystem.upload.v1.UploadFilesystemPipeDocRequest.newBuilder()
                         .setDocument(pipeDoc)
                         .build();
                 // Use GrpcClientFactory for proper service discovery and channel configuration
