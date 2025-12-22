@@ -25,7 +25,7 @@ import org.jboss.logging.Logger;
 public class ConnectorValidationService {
 
     private static final Logger LOG = Logger.getLogger(ConnectorValidationService.class);
-    private static final String DATASOURCE_SERVICE_NAME = "datasource-admin";
+    private static final String DATASOURCE_SERVICE_NAME = "connector-admin";
     private static final String ACCOUNT_SERVICE_NAME = "account-manager";
 
     /**

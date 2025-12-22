@@ -29,6 +29,11 @@ pipestreamProtos {
     sourceMode = 'git'
 
     modules {
+        register("common") {
+            gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
+            gitRef = "main"
+            gitSubdir = "common"
+        }
         register("intake") {
             gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
             gitRef = "main"

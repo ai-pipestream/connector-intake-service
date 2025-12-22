@@ -14,6 +14,7 @@ import ai.pipestream.connector.intake.v1.HeartbeatResponse;
 import ai.pipestream.data.v1.PipeDoc;
 import ai.pipestream.data.v1.Blob;
 import ai.pipestream.data.v1.BlobBag;
+import ai.pipestream.data.v1.OwnershipContext;
 import ai.pipestream.data.v1.SearchMetadata;
 import ai.pipestream.quarkus.dynamicgrpc.GrpcClientFactory;
 import ai.pipestream.repository.filesystem.upload.v1.MutinyNodeUploadServiceGrpc;
@@ -67,7 +68,7 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                         .setDocument(request.getPipeDoc())
                         .build();
                 // Use GrpcClientFactory for proper service discovery and channel configuration
-                return grpcClientFactory.getClient("repo-service", MutinyNodeUploadServiceGrpc::newMutinyStub)
+                return grpcClientFactory.getClient("repository", MutinyNodeUploadServiceGrpc::newMutinyStub)
                     .flatMap(stub -> stub.uploadFilesystemPipeDoc(repoRequest));
             })
             .map(repoResponse -> ai.pipestream.connector.intake.v1.UploadPipeDocResponse.newBuilder()
@@ -119,7 +120,15 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                     .putMetadata("account_id", config.getAccountId())
                     .build();
 
+                OwnershipContext ownership = OwnershipContext.newBuilder()
+                    .setAccountId(config.getAccountId())
+                    .setConnectorId(config.getConnectorId())
+                    .setDatasourceId(request.getDatasourceId())
+                    .build();
+
                 PipeDoc pipeDoc = PipeDoc.newBuilder()
+                    .setDocId(UUID.randomUUID().toString())
+                    .setOwnership(ownership)
                     .setSearchMetadata(metadata)
                     .setBlobBag(BlobBag.newBuilder().setBlob(blob).build())
                     .build();
@@ -139,7 +148,7 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                         .setDocument(pipeDoc)
                         .build();
                 // Use GrpcClientFactory for proper service discovery and channel configuration
-                return grpcClientFactory.getClient("repo-service", MutinyNodeUploadServiceGrpc::newMutinyStub)
+                return grpcClientFactory.getClient("repository", MutinyNodeUploadServiceGrpc::newMutinyStub)
                     .flatMap(stub -> stub.uploadFilesystemPipeDoc(repoRequest))
                     .invoke(() -> {
                         long repoCallTime = System.nanoTime() - repoCallStart;
