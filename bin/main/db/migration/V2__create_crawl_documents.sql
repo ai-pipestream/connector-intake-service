@@ -4,9 +4,9 @@ CREATE TABLE crawl_documents (
   source_id VARCHAR(500) NOT NULL,
   document_id VARCHAR(100) NOT NULL,
   processed_at TIMESTAMP NOT NULL,
-  
+
   PRIMARY KEY (crawl_session_id, source_id),
-  INDEX idx_document_id (document_id),
-  
   FOREIGN KEY (crawl_session_id) REFERENCES crawl_sessions(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+);
+
+CREATE INDEX idx_crawl_documents_document_id ON crawl_documents(document_id);
