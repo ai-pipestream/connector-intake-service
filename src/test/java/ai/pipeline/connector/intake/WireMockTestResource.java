@@ -54,12 +54,12 @@ public class WireMockTestResource implements QuarkusTestResourceLifecycleManager
         return Map.of(
                 // Configure Stork static service discovery for repo-service
                 // This overrides the Consul-based discovery in ServiceDiscoveryManager
-                "stork.repo-service.service-discovery.type", "static",
-                "stork.repo-service.service-discovery.address-list", repoServiceAddress,
+                "stork.repository.service-discovery.type", "static",
+                "stork.repository.service-discovery.address-list", repoServiceAddress,
 
                 // Legacy Quarkus gRPC client config (for any direct client usage)
-                "quarkus.grpc.clients.repo-service.host", host,
-                "quarkus.grpc.clients.repo-service.port", repoServicePort,
+                "quarkus.grpc.clients.repository.host", host,
+                "quarkus.grpc.clients.repository.port", repoServicePort,
 
                 // Point Registration Service to Direct server (it handles streaming)
                 "pipestream.registration.registration-service.host", host,

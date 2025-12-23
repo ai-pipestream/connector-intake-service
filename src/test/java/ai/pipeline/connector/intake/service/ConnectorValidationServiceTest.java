@@ -55,7 +55,7 @@ class ConnectorValidationServiceTest {
         accountServiceStub = mock(MutinyAccountServiceGrpc.MutinyAccountServiceStub.class);
 
         // Configure factory to return mock stubs
-        when(grpcClientFactory.getClient(eq("datasource-admin"), any()))
+        when(grpcClientFactory.getClient(eq("connector-admin"), any()))
                 .thenReturn(Uni.createFrom().item(datasourceAdminStub));
         when(grpcClientFactory.getClient(eq("account-manager"), any()))
                 .thenReturn(Uni.createFrom().item(accountServiceStub));
