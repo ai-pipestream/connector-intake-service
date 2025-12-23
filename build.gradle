@@ -109,8 +109,8 @@ java {
 
 test {
     systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
-    maxHeapSize = "10g"
-    jvmArgs = ["-Xmx10g", "-XX:MaxMetaspaceSize=1g", "--add-opens", "java.base/java.lang=ALL-UNNAMED"]
+    maxHeapSize = "12g"
+    jvmArgs = ["-Xmx12g", "-XX:MaxMetaspaceSize=1g", "--add-opens", "java.base/java.lang=ALL-UNNAMED"]
 }
 
 compileJava {
