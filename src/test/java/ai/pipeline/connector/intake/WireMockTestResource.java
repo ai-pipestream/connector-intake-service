@@ -25,7 +25,7 @@ public class WireMockTestResource implements QuarkusTestResourceLifecycleManager
     @Override
     public Map<String, String> start() {
         // Allow configuring the image via system property, default to the latest official image
-        String imageName = System.getProperty("pipestream.wiremock.image", "docker.io/pipestreamai/pipestream-wiremock-server:0.1.24");
+        String imageName = System.getProperty("pipestream.wiremock.image", "docker.io/pipestreamai/pipestream-wiremock-server:0.1.27");
         System.err.println("DEBUG: WireMockTestResource starting with image: " + imageName);
 
         wiremock = new GenericContainer<>(DockerImageName.parse(imageName))
