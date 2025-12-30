@@ -25,30 +25,22 @@ scmVersion {
 def pipestreamBomVersion = findProperty('pipestreamBomVersion') ?: '0.7.10'
 
 // Proto toolchain configuration - fetches from Git and generates Java/gRPC code
+// Using git-proto-workspace mode to handle cross-module dependencies
 pipestreamProtos {
-    sourceMode = 'git'
+    sourceMode = 'git-proto-workspace'
+    gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
+    gitRef = "main"
+    generateMutiny = true
+    generateDescriptors = true
 
     modules {
-        register("common") {
-            gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
-            gitRef = "main"
-            gitSubdir = "common"
-        }
-        register("intake") {
-            gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
-            gitRef = "main"
-            gitSubdir = "intake"
-        }
-        register("admin") {
-            gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
-            gitRef = "main"
-            gitSubdir = "admin"
-        }
-        register("repo") {
-            gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
-            gitRef = "main"
-            gitSubdir = "repo"
-        }
+        // Just register module names - workspace mode handles dependencies automatically
+        register("common")
+        register("config")
+        register("intake")
+        register("admin")
+        register("pipeline-module")
+        register("repo")
     }
 }
 
