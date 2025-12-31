@@ -25,12 +25,17 @@ public class WireMockTestResource implements QuarkusTestResourceLifecycleManager
     @Override
     public Map<String, String> start() {
         // Allow configuring the image via system property, default to the latest official image
-        String imageName = System.getProperty("pipestream.wiremock.image", "docker.io/pipestreamai/pipestream-wiremock-server:0.1.27");
+        String imageName = System.getProperty("pipestream.wiremock.image", "docker.io/pipestreamai/pipestream-wiremock-server:0.1.28");
         System.err.println("DEBUG: WireMockTestResource starting with image: " + imageName);
 
         wiremock = new GenericContainer<>(DockerImageName.parse(imageName))
                 .withExposedPorts(8080, 50052)
                 .withLogConsumer(outputFrame -> System.out.print(outputFrame.getUtf8String()))
+                // Ensure account not-found scenario is deterministic for tests.
+                // NOTE: pipestream-wiremock-server's MockConfig lowercases env-var keys, but some mock initializers
+                // look up mixed-case keys (e.g. wiremock.account.GetAccount.notfound.id). To avoid that mismatch,
+                // set a JVM system property inside the container via JAVA_TOOL_OPTIONS.
+                .withEnv("JAVA_TOOL_OPTIONS", "-Dwiremock.account.GetAccount.notfound.id=nonexistent-account")
                 .waitingFor(Wait.forLogMessage(".*WireMock Server started.*", 1));
         
         wiremock.start();
@@ -51,27 +56,50 @@ public class WireMockTestResource implements QuarkusTestResourceLifecycleManager
 
         System.err.println("DEBUG: Configuring Stork static discovery for repo-service at: " + repoServiceAddress);
 
-        return Map.of(
-                // Configure Stork static service discovery for repo-service
-                // This overrides the Consul-based discovery in ServiceDiscoveryManager
-                "stork.repository.service-discovery.type", "static",
-                "stork.repository.service-discovery.address-list", repoServiceAddress,
+        // Use standard port (8080) for connector-admin and engine (unary gRPC)
+        String standardServiceAddress = host + ":" + standardPort;
+        
+        Map<String, String> config = new java.util.HashMap<>();
+        
+        // Configure Stork static service discovery for repo-service
+        // This overrides the Consul-based discovery in ServiceDiscoveryManager
+        config.put("stork.repository.service-discovery.type", "static");
+        config.put("stork.repository.service-discovery.address-list", repoServiceAddress);
 
-                // Legacy Quarkus gRPC client config (for any direct client usage)
-                "quarkus.grpc.clients.repository.host", host,
-                "quarkus.grpc.clients.repository.port", repoServicePort,
+        // Configure Stork for connector-admin (unary gRPC via standard port)
+        config.put("stork.connector-admin.service-discovery.type", "static");
+        config.put("stork.connector-admin.service-discovery.address-list", standardServiceAddress);
+        
+        // Configure Stork for engine (unary gRPC via standard port)
+        config.put("stork.pipestream-engine.service-discovery.type", "static");
+        config.put("stork.pipestream-engine.service-discovery.address-list", standardServiceAddress);
+        
+        // Configure Stork for account-manager (unary gRPC via standard port)
+        config.put("stork.account-manager.service-discovery.type", "static");
+        config.put("stork.account-manager.service-discovery.address-list", standardServiceAddress);
 
-                // Point Registration Service to Direct server (it handles streaming)
-                "pipestream.registration.registration-service.host", host,
-                "pipestream.registration.registration-service.port", directPort,
+        // Legacy Quarkus gRPC client config (for any direct client usage)
+        config.put("quarkus.grpc.clients.repository.host", host);
+        config.put("quarkus.grpc.clients.repository.port", repoServicePort);
+        config.put("quarkus.grpc.clients.connector-admin.host", host);
+        config.put("quarkus.grpc.clients.connector-admin.port", standardPort);
+        config.put("quarkus.grpc.clients.pipestream-engine.host", host);
+        config.put("quarkus.grpc.clients.pipestream-engine.port", standardPort);
+        config.put("quarkus.grpc.clients.account-manager.host", host);
+        config.put("quarkus.grpc.clients.account-manager.port", standardPort);
 
-                // Expose standard port in case needed for HTTP/Admin API
-                "wiremock.host", host,
-                "wiremock.port", standardPort,
+        // Point Registration Service to Direct server (it handles streaming)
+        config.put("pipestream.registration.registration-service.host", host);
+        config.put("pipestream.registration.registration-service.port", directPort);
 
-                // Ensure Quarkus gRPC server allows large messages (overriding defaults)
-                "quarkus.grpc.server.max-inbound-message-size", "2147483647"
-        );
+        // Expose standard port in case needed for HTTP/Admin API
+        config.put("wiremock.host", host);
+        config.put("wiremock.port", standardPort);
+
+        // Ensure Quarkus gRPC server allows large messages (overriding defaults)
+        config.put("quarkus.grpc.server.max-inbound-message-size", "2147483647");
+        
+        return config;
     }
 
     @Override
