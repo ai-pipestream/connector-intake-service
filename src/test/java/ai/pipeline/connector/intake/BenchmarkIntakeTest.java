@@ -1,19 +1,20 @@
 package ai.pipeline.connector.intake;
 
-import ai.pipeline.connector.intake.service.ConnectorValidationService;
+import ai.pipeline.connector.intake.service.ConfigResolutionService;
+import ai.pipeline.connector.intake.service.EngineClient;
 import ai.pipestream.connector.intake.v1.*;
+import ai.pipestream.data.v1.IngestionConfig;
+import ai.pipestream.engine.v1.IntakeHandoffResponse;
 import com.google.protobuf.ByteString;
 import io.quarkus.grpc.GrpcClient;
 import io.quarkus.test.InjectMock;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.common.ResourceArg;
 import io.quarkus.test.junit.QuarkusTest;
-import io.quarkus.test.junit.TestProfile;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.smallrye.mutiny.Uni;
 import org.jboss.logging.Logger;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.net.URL;
@@ -24,9 +25,15 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
 
+/**
+ * Benchmark tests for intake service.
+ *
+ * This test is intentionally mocked to measure pure gRPC throughput/behavior in isolation.
+ * (WireMock server runs Jetty on 8080 and is not representative for benchmarks.)
+ */
 @QuarkusTest
 @QuarkusTestResource(value = WireMockTestResource.class, initArgs = @ResourceArg(name = "useDirectGrpc", value = "true"))
 public class BenchmarkIntakeTest {
@@ -37,7 +44,10 @@ public class BenchmarkIntakeTest {
     MutinyConnectorIntakeServiceGrpc.MutinyConnectorIntakeServiceStub intakeClient;
 
     @InjectMock
-    ConnectorValidationService validationService;
+    ConfigResolutionService configResolutionService;
+
+    @InjectMock
+    EngineClient engineClient;
 
     @TestHTTPResource
     URL testUrl;
@@ -83,17 +93,30 @@ public class BenchmarkIntakeTest {
         Arrays.fill(data, (byte) 1);
         ByteString content = ByteString.copyFrom(data);
 
-        String connectorId = "bench-conn";
+        String datasourceId = "bench-conn";
         String apiKey = "bench-key";
-        DataSourceConfig config = DataSourceConfig.newBuilder()
+        DataSourceConfig tier1Config = DataSourceConfig.newBuilder()
                 .setAccountId("bench-acc")
+                .setDatasourceId(datasourceId)
+                .setConnectorId("connector-1")
                 .build();
+        ConfigResolutionService.ResolvedConfig resolvedConfig =
+            new ConfigResolutionService.ResolvedConfig(tier1Config, IngestionConfig.getDefaultInstance());
 
-        when(validationService.validateDataSource(anyString(), anyString()))
-                .thenReturn(Uni.createFrom().item(config));
+        when(configResolutionService.resolveConfig(anyString(), anyString()))
+                .thenReturn(Uni.createFrom().item(resolvedConfig));
+
+        // Mock engine handoff
+        IntakeHandoffResponse handoffResponse = IntakeHandoffResponse.newBuilder()
+                .setAccepted(true)
+                .setAssignedStreamId("stream-1")
+                .setEntryNodeId("node-1")
+                .build();
+        when(engineClient.handoffReferenceToEngine(anyString(), anyString(), anyString(), anyString(), any()))
+                .thenReturn(Uni.createFrom().item(handoffResponse));
 
         UploadBlobRequest request = UploadBlobRequest.newBuilder()
-                .setDatasourceId(connectorId)
+                .setDatasourceId(datasourceId)
                 .setApiKey(apiKey)
                 .setFilename("benchmark_parallel.bin")
                 .setMimeType("application/octet-stream")
@@ -172,17 +195,30 @@ public class BenchmarkIntakeTest {
         Arrays.fill(data, (byte) 1);
         ByteString content = ByteString.copyFrom(data);
 
-        String connectorId = "bench-conn";
+        String datasourceId = "bench-conn";
         String apiKey = "bench-key";
-        DataSourceConfig config = DataSourceConfig.newBuilder()
+        DataSourceConfig tier1Config = DataSourceConfig.newBuilder()
                 .setAccountId("bench-acc")
+                .setDatasourceId(datasourceId)
+                .setConnectorId("connector-1")
                 .build();
+        ConfigResolutionService.ResolvedConfig resolvedConfig =
+            new ConfigResolutionService.ResolvedConfig(tier1Config, IngestionConfig.getDefaultInstance());
 
-        when(validationService.validateDataSource(anyString(), anyString()))
-                .thenReturn(Uni.createFrom().item(config));
+        when(configResolutionService.resolveConfig(anyString(), anyString()))
+                .thenReturn(Uni.createFrom().item(resolvedConfig));
+
+        // Mock engine handoff
+        IntakeHandoffResponse handoffResponse = IntakeHandoffResponse.newBuilder()
+                .setAccepted(true)
+                .setAssignedStreamId("stream-2")
+                .setEntryNodeId("node-1")
+                .build();
+        when(engineClient.handoffReferenceToEngine(anyString(), anyString(), anyString(), anyString(), any()))
+                .thenReturn(Uni.createFrom().item(handoffResponse));
 
         UploadBlobRequest request = UploadBlobRequest.newBuilder()
-                .setDatasourceId(connectorId)
+                .setDatasourceId(datasourceId)
                 .setApiKey(apiKey)
                 .setFilename("benchmark_large.bin")
                 .setMimeType("application/octet-stream")

@@ -41,6 +41,7 @@ pipestreamProtos {
         register("admin")
         register("pipeline-module")
         register("repo")
+        register("engine")  // For IntakeHandoff RPC only (intake is graph-agnostic)
     }
 }
 
@@ -81,6 +82,7 @@ dependencies {
     
     // Testing
     testImplementation 'io.quarkus:quarkus-junit5'
+    // Mockito is allowed for isolated benchmark-style tests (no wiremock libs; wiremock is a Docker gRPC server)
     testImplementation 'io.quarkus:quarkus-junit5-mockito'
     testImplementation 'io.rest-assured:rest-assured'
     testImplementation platform('org.testcontainers:testcontainers-bom:2.0.1')
