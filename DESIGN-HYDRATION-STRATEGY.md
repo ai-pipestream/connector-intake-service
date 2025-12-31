@@ -16,11 +16,12 @@ This document defines the **config-driven hydration strategy** for `connector-in
 ### Source of Configuration
 
 - **Source**: 2-Tier Configuration Architecture (details below)
-- **Decision Point**: `connector-intake-service`
+- **Decision Point**: `connector-intake-service` (uses Tier 1 config only)
 - **Logic**:
-  - "Should I persist raw input to S3?" (Resolved from Tier 1 + Tier 2 config)
-  - "Should I persist processed outputs?" (Defined per-Node in Tier 2 config)
-  - Routing and output hints (Tier 2 per-node configuration)
+  - "Should I persist raw input to S3?" (Resolved from Tier 1 config only)
+  - Engine handles Tier 2 config merging and routing during IntakeHandoff
+  - "Should I persist processed outputs?" (Defined per-Node in Tier 2 config, handled by engine)
+  - Routing and output hints (Tier 2 per-node configuration, handled by engine)
 
 ### Configuration Architecture: 2-Tier Model
 
@@ -182,20 +183,22 @@ When a document is ingested via `connector-intake-service`:
 2. Load DataSource entity (Tier 1 instance overrides)
    └─> Strongly typed overrides + custom_config (overrides connector defaults)
 
-3. Load DatasourceInstance from graph (Tier 2 per-node)
-   └─> node_config (strongly typed overrides + custom_config)
+3. Intake applies Tier 1 config:
+   └─> Persistence decision (based on Tier 1 persistence_config only)
+   └─> Forward to engine with Tier 1 IngestionConfig
 
-4. Merge configuration (Tier 1 defaults → Tier 1 overrides → Tier 2 node config)
-   └─> Final configuration drives:
-       - Intake persistence decisions
-       - IngestContext construction
-       - Engine routing
+4. Engine resolves Tier 2 config (during IntakeHandoff):
+   └─> Find DatasourceInstance(s) for datasource_id in active graphs
+   └─> Merge Tier 2 (from node_config) into Tier 1 IngestionConfig
+   └─> Route to entry_node_id(s) from DatasourceInstance(s)
 ```
 
-**Configuration Merging Rules**:
+**Configuration Merging Rules** (applied by engine during IntakeHandoff):
 - Tier 2 values override Tier 1 values
 - Nested objects are deep-merged (not replaced)
 - Arrays in Tier 2 replace arrays in Tier 1 (no merging)
+
+**Note**: Intake only uses Tier 1 config for persistence decisions. Engine merges Tier 2 when routing documents.
 
 #### Registration Pattern (Similar to Modules)
 
@@ -255,13 +258,13 @@ message OutputHints {
   map<string, string> routing_hints = 2; // Routing hints for downstream modules
 }
 
-// Ingestion configuration from connector-intake-service.
-// Contains the resolved 2-tier configuration (Tier 1 + Tier 2 merged).
+// Ingestion configuration passed from intake to engine.
+// Intake sets Tier 1 values; Engine merges Tier 2 overrides during IntakeHandoff.
 message IngestionConfig {
-  IngressMode ingress_mode = 1;
-  HydrationConfig hydration_config = 2;   // Resolved from Tier 1 + Tier 2
-  OutputHints output_hints = 3;           // From Tier 2
-  google.protobuf.Struct custom_config = 4; // Merged connector-specific config
+  IngressMode ingress_mode = 1;              // Set by intake (HTTP_STAGED or GRPC_INLINE)
+  HydrationConfig hydration_config = 2;      // Tier 1 value from intake; Engine merges Tier 2 override
+  OutputHints output_hints = 3;              // Added by engine (from Tier 2 DatasourceInstance.node_config)
+  google.protobuf.Struct custom_config = 4;  // Tier 1 value from intake; Engine merges Tier 2 override
 }
 ```
 
@@ -364,9 +367,11 @@ message DatasourceInstance {
 
 #### Configuration Resolution in Intake
 
+**Key Design Principle**: Intake is graph-agnostic. It only handles Tier 1 config. Engine handles Tier 2 resolution.
+
 When `connector-intake-service` receives a request:
 
-1. **Validate & Load Tier 1 Config**:
+1. **Validate & Load Tier 1 Config Only**:
    ```java
    DataSourceConfig tier1Config = validationService.validateDataSource(...);
    // tier1Config.global_config contains:
@@ -375,32 +380,22 @@ When `connector-intake-service` receives a request:
    //   - custom_config (connector-specific JSON)
    ```
 
-2. **Resolve Tier 2 Config** (via Engine):
+2. **Build Base IngestionConfig** (Tier 1 only):
    ```java
-   DatasourceInstance instance = engineClient.getDatasourceInstance(datasourceId);
-   NodeConfig tier2Config = instance.getNodeConfig();
-   // tier2Config contains:
-   //   - Optional overrides for persistence, retention, hydration
-   //   - output_hints (shared type from core)
-   //   - custom_config (node-specific JSON)
-   ```
-
-3. **Merge Configurations**:
-   ```java
-   // Merge Tier 1 + Tier 2 into IngestionConfig for the stream
+   // Build IngestionConfig with Tier 1 settings only
+   // Engine will merge Tier 2 overrides during IntakeHandoff
    IngestionConfig ingestionConfig = IngestionConfig.newBuilder()
        .setIngressMode(wasPersisted ? INGRESS_MODE_HTTP_STAGED : INGRESS_MODE_GRPC_INLINE)
-       .setHydrationConfig(tier2Config.hasHydrationConfig()
-           ? tier2Config.getHydrationConfig()
-           : tier1Config.getGlobalConfig().getHydrationConfig())
-       .setOutputHints(tier2Config.getOutputHints())
-       .setCustomConfig(mergeCustomConfigs(tier1Config, tier2Config))
+       .setHydrationConfig(tier1Config.getGlobalConfig().getHydrationConfig())
        .build();
    ```
 
-4. **Apply Configuration**:
+3. **Apply Configuration**:
    - Use `tier1Config.persistence_config.persist_pipedoc` for persistence decision
-   - Include `ingestionConfig` in `StreamMetadata.ingestion_config` for Engine
+   - Include base `ingestionConfig` in `StreamMetadata.ingestion_config`
+   - Engine merges Tier 2 overrides (output_hints, custom_config) during processing
+
+**Note**: Tier 2 config (DatasourceInstance, entry_node_id, output_hints) is resolved by Engine, not Intake. This keeps Intake simple and decoupled from graph internals.
 
 **Current DataSourceConfig structure** (lines 160-175):
 - `account_id = 1`
@@ -515,27 +510,25 @@ This design fits the "Hydration Levels" concept:
    - Validate custom_config against JSON Schema on registration
    - Provide registration lookup API
 
-4. **Configuration Resolution Service** (connector-intake-service)
+4. **Configuration Resolution Service** (connector-intake-service) ✅ **IMPLEMENTED**
    - Create `ConfigResolutionService` to:
-     - Load Tier 1 config (Connector defaults + DataSource overrides)
+     - Load Tier 1 config only (Connector defaults + DataSource overrides from datasource-admin)
        - Merge strongly typed fields (protobuf merge)
        - Deep merge custom_config JSON objects
-     - Load Tier 2 config (DatasourceInstance from graph)
-     - Merge configurations with proper override semantics:
-       - Strongly typed fields: Tier 2 optional fields override Tier 1
-       - custom_config: Deep merge with Tier 2 taking precedence
-     - Validate custom_config against JSON Schema if present
-   - Update `ConnectorValidationService` to return merged Tier 1 config
+     - Build base IngestionConfig with Tier 1 settings
+     - Engine handles Tier 2 config resolution during IntakeHandoff (not in intake)
+   - Update `ConnectorValidationService` to return merged Tier 1 config ✅ **DONE**
 
 ### Phase 2: Implement Hydration Strategy with Config
 
-5. **Update ConnectorIntakeServiceImpl**
+5. **Update ConnectorIntakeServiceImpl** ✅ **IMPLEMENTED**
    - Modify `uploadPipeDoc` to:
-     - Resolve full config (Tier 1 + Tier 2) via `ConfigResolutionService`
-     - Check `resolved_config.persistence_config.persist_pipedoc`
+     - Resolve Tier 1 config only via `ConfigResolutionService`
+     - Check `resolved_config.shouldPersist()` (from Tier 1 persistence_config.persist_pipedoc)
      - If `true`: Call `Repo.SavePipeDoc` → replace inline data with `storage_ref` → push to Engine
      - If `false`: Skip Repo → push original PipeDoc directly to Engine
-   - Keep `uploadBlob` unchanged (always persists)
+   - Keep `uploadBlob` unchanged (always persists) ✅ **DONE**
+   - Pass Tier 1 IngestionConfig to engine; engine merges Tier 2 during IntakeHandoff ✅ **DONE**
 
 6. **IngestContext Construction**
    - Include resolved configuration in `IngestContext`
@@ -596,15 +589,10 @@ public Uni<UploadPipeDocResponse> uploadPipeDoc(UploadPipeDocRequest request) {
 }
 
 private boolean shouldPersistPipeDoc(ResolvedConfig resolvedConfig, PipeDoc doc) {
-    // Configuration resolution merges Tier 1 + Tier 2
-    // Tier 2 node_config.persistence_config overrides Tier 1 if present
-    PersistenceConfig persistenceConfig = resolvedConfig.getPersistenceConfig();
-    
-    // Default: persist if config not set (safe default)
-    if (persistenceConfig == null || !persistenceConfig.hasPersistGRpcPipedoc()) {
-        return true;
-    }
-    return persistenceConfig.getPersistGRpcPipedoc();
+    // Intake only uses Tier 1 config for persistence decision
+    // Engine handles Tier 2 persistence config overrides during IntakeHandoff
+    // This keeps intake graph-agnostic and simple
+    return resolvedConfig.shouldPersist(); // Checks Tier 1 persistence_config.persist_pipedoc
 }
 
 private Uni<IntakeHandoffResponse> persistAndPushToEngine(PipeDoc doc, DataSourceConfig config, String datasourceId) {
@@ -814,7 +802,7 @@ ALTER TABLE datasources ADD COLUMN IF NOT EXISTS
 
 **Gap**: How does `connector-intake-service` know which graph to query for Tier 2 config?
 
-**Resolution**: 
+**Resolution**:
 - **Intake is graph-agnostic** - it doesn't know about graphs, clusters, or routing. It just receives data and sends to engine.
 - **Engine owns all graph knowledge** - Engine keeps entire graph in memory and knows which DatasourceInstances exist in which graphs/clusters.
 - **Engine multicasts** - If multiple DatasourceInstances exist for a `datasource_id` (e.g., "news web crawler" → "search pipeline" AND "weather analytics pipeline"), engine routes document to ALL matching entry nodes.
@@ -822,9 +810,10 @@ ALTER TABLE datasources ADD COLUMN IF NOT EXISTS
 - `cluster_id` is graph-level knowledge, stored with DatasourceInstance in the graph (not provided by intake).
 
 **Implementation**:
-- Intake only passes `datasource_id` (no graph/cluster knowledge needed)
+- **Intake does NOT call engine for Tier 2 config** - keeps intake simple and decoupled
+- Intake only passes `datasource_id` and `account_id` to engine via `IntakeHandoff`
 - Engine searches ALL active graphs to find DatasourceInstances with matching `datasource_id`
-- Engine's `GetDatasourceInstance` RPC returns first match found (for config resolution)
+- **Engine merges Tier 2 config internally** during IntakeHandoff processing
 - For `IntakeHandoff`, engine routes to ALL matching DatasourceInstances (multicast to all entry nodes)
 - If no DatasourceInstance found: document is dropped (OK for gRPC inline, not OK for persist path - should warn/log)
 
@@ -1017,24 +1006,26 @@ HydrationConfig:
 This design establishes **connector-intake-service** as the decision coordinator for document persistence with a **2-tier configuration architecture**:
 
 1. **2-Tier Configuration**:
-   - **Tier 1**: Global/default configuration at connector/datasource level
-   - **Tier 2**: Per-node configuration in graph (DatasourceInstance)
-   - Configuration resolution merges both tiers with proper override semantics
+   - **Tier 1**: Global/default configuration at connector/datasource level (owned by datasource-admin)
+   - **Tier 2**: Per-node configuration in graph (DatasourceInstance) (owned by Engine)
+   - **Intake is graph-agnostic**: Only handles Tier 1 config; Engine merges Tier 2
 
-2. **Config-Driven Persistence**: Persistence decisions come from resolved configuration (Tier 1 + Tier 2)
+2. **Config-Driven Persistence**: Persistence decisions come from Tier 1 configuration
 
-3. **Two Ingestion Paths**: 
+3. **Two Ingestion Paths**:
    - HTTP uploads always persist (streaming requirement)
    - gRPC PipeDoc uploads are configurable via `persist_pipedoc`
 
-4. **Intake Coordinates**: Service resolves configuration and makes persistence decision
+4. **Intake Coordinates Tier 1**: Service resolves Tier 1 config and makes persistence decision
 
-5. **Repository as Utility**: Called only when persistence is needed (based on config)
+5. **Repository as Utility**: Called only when persistence is needed (based on Tier 1 config)
 
-6. **Engine Integration**: 
+6. **Engine Integration**:
    - Engine receives PipeDoc with either inline data or storage_ref
-   - `IngestContext` includes output hints (desired_collection, routing hints)
-   - Configuration passed to downstream modules via IngestContext
+   - Engine resolves graph routing from `datasource_id` (intake doesn't know about graphs)
+   - Engine merges Tier 2 config (output_hints, custom_config overrides) during IntakeHandoff
+   - Merged `IngestionConfig` includes output hints (desired_collection, routing hints)
+   - Configuration passed to downstream modules via IngestionConfig
 
 7. **Registration Pattern**: Connectors register with JSON schemas (similar to modules) enabling JSON Forms UI generation
 
@@ -1139,29 +1130,33 @@ This section outlines all services that need changes to implement the 2-tier con
 
 ### 4. connector-intake-service
 
+**Design Principle**: Intake is graph-agnostic. It handles Tier 1 config only. Engine handles Tier 2.
+
 **Changes Required:**
 - **Configuration Resolution Service**: Create `ConfigResolutionService` to:
-  - Load Tier 1 config (from datasource-admin)
-  - Load Tier 2 config (from engine/graph service)
-  - Merge configurations with proper override semantics
-  - Validate custom_config against JSON Schema
+  - Load Tier 1 config only (from datasource-admin via `ConnectorValidationService`)
+  - Build base `IngestionConfig` with Tier 1 settings
+  - **Does NOT call engine for Tier 2** - keeps intake simple and decoupled
 - **Engine Client**: Create `EngineClient` service for `IntakeHandoff` calls
+  - Pass only `datasource_id` and `account_id` (no entry_node_id)
+  - Engine resolves graph routing and Tier 2 config internally
 - **Repository Client**: Refactor/update for `SavePipeDoc` calls
 - **Intake Service Updates**:
   - Update `ConnectorIntakeServiceImpl.uploadPipeDoc` with config resolution
-  - Implement conditional persistence logic (based on resolved config)
-  - Build `IngestContext` from resolved configuration
+  - Implement conditional persistence logic (based on Tier 1 config)
+  - Build base `IngestionConfig` from Tier 1 config
   - Dehydrate blobs (replace `data` with `storage_ref`) after persistence
-- **Validation Service**: Update `ConnectorValidationService` to return merged Tier 1 config
+- **Validation Service**: Update `ConnectorValidationService` to return Tier 1 config
 
-**Impact**: **HIGH** - Core orchestration logic, ties everything together
+**Impact**: **MEDIUM** - Simplified orchestration logic (no engine calls for config)
 
 ### 5. pipestream-engine
 
-**Service Responsibility**: Graph-level datasource usage and routing
+**Service Responsibility**: Graph-level datasource usage, routing, and Tier 2 config resolution
   - **Owns Tier 2 Configuration**: DatasourceInstance per graph (graph-versioned)
   - **Owns Graph Topology**: Nodes, edges, and DatasourceInstance bindings
   - **Owns Routing Logic**: Resolves active graph, routes to entry nodes
+  - **Merges Tier 2 Config**: Engine merges Tier 2 overrides into IngestionConfig during IntakeHandoff
   - **Does NOT own Tier 1**: Tier 1 (service-level) is owned by datasource-admin
   - **Does NOT own DatasourceDefinition**: Connector types owned by datasource-admin
 
@@ -1170,21 +1165,20 @@ This section outlines all services that need changes to implement the 2-tier con
   - `DatasourceInstance` contains Tier 2 config (node_config) only
   - References `datasource_id` from datasource-admin (does not duplicate Tier 1 config)
 - **IntakeHandoff Processing**:
+  - Receive `IntakeHandoffRequest` with `datasource_id` and `account_id` (no entry_node_id from intake)
   - Search ALL active graphs to find ALL `DatasourceInstances` with matching `datasource_id`
+  - **Merge Tier 2 config** (output_hints, custom_config overrides) into base IngestionConfig from intake
   - Route document to ALL matching entry nodes (multicast - one datasource can feed multiple graphs)
   - If no DatasourceInstance found: drop document (acceptable for gRPC inline)
-  - Extract and validate `IngestContext` from `PipeStream`
-  - Include `IngestContext` in processing context for downstream modules
   - Set `cluster_id` in `PipeStream` based on which graph(s) contain the `DatasourceInstance(s)`
-- **IngestContext Handling**:
-  - Pass `output_hints` (including `desired_collection`) to modules
-  - Pass `custom_config` to modules for connector-specific processing
+- **IngestionConfig Handling**:
+  - Merge Tier 2 overrides into `StreamMetadata.ingestion_config`
+  - Pass merged `output_hints` (including `desired_collection`) to modules
+  - Pass merged `custom_config` to modules for connector-specific processing
   - Track ingestion record in hop history (hop 0)
-- **Configuration API**: Provide API to lookup `DatasourceInstance` by datasource_id only
-  - Engine searches all active graphs to find `DatasourceInstance` with matching `datasource_id`
-  - `cluster_id` is internal to engine (derived from which graph contains the instance)
+- **Note**: `GetDatasourceInstance` RPC exists for admin/debug purposes but is NOT called by intake
 
-**Impact**: **HIGH** - Graph configuration changes, intake routing, IngestContext propagation
+**Impact**: **HIGH** - Graph configuration changes, intake routing, config merging, IngestionConfig propagation
 
 ### 6. pipestream-engine-kafka-sidecar
 

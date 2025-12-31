@@ -49,14 +49,15 @@ This document clarifies the ownership and responsibilities of each service in th
 ### connector-intake-service (orchestration)
 
 **Owns**:
-- **Configuration Resolution**: Merges Tier 1 (from datasource-admin) + Tier 2 (from engine)
-- **Persistence Decision**: Applies resolved config to decide when to persist
+- **Tier 1 Configuration Resolution**: Resolves Tier 1 config from datasource-admin only
+- **Persistence Decision**: Applies Tier 1 config to decide when to persist documents
 - **Ingestion Orchestration**: Coordinates between datasource-admin, repository-service, and engine
 
 **Does NOT Own**:
 - ❌ Tier 1 Configuration storage - reads from datasource-admin
-- ❌ Tier 2 Configuration storage - reads from engine
-- ❌ Graph topology - queries engine for DatasourceInstance
+- ❌ Tier 2 Configuration resolution - Engine handles this during IntakeHandoff
+- ❌ Graph topology - Intake is graph-agnostic
+- ❌ Graph routing - Engine handles all routing based on datasource_id
 
 ### repository-service (storage abstraction)
 
@@ -81,20 +82,19 @@ This document clarifies the ownership and responsibilities of each service in th
    - Load DataSource entity (Tier 1 overrides)
    - Merge: Connector defaults + DataSource overrides = Tier 1 config
    ↓
-3. Query engine for Tier 2 config:
-   - Resolve active graph for cluster
-   - Find DatasourceInstance(datasource_id) in active graph
-   - Extract node_config (Tier 2 config)
+3. Apply Tier 1 config:
+   - Persistence decision: Check Tier 1 persistence_config.persist_pipedoc
+   - Persist to repository if needed (based on Tier 1 config)
+   - Build base IngestionConfig with Tier 1 hydration_config
    ↓
-4. Merge configurations:
-   - Tier 1 (from datasource-admin) + Tier 2 (from engine)
-   - Apply override rules (Tier 2 overrides Tier 1)
-   ↓
-5. Apply resolved config:
-   - Persistence decisions (intake)
-   - IngestContext construction (intake)
-   - Engine routing (engine uses Tier 2 entry_node_id)
+4. Forward to engine:
+   - Pass datasource_id, account_id, and Tier 1 IngestionConfig
+   - Engine resolves DatasourceInstance(s) for datasource_id in active graphs
+   - Engine merges Tier 2 config (from DatasourceInstance.node_config) into IngestionConfig
+   - Engine routes to entry_node_id(s) from DatasourceInstance(s)
 ```
+
+**Key Design**: Intake is graph-agnostic and only uses Tier 1 config. Engine handles all Tier 2 resolution and graph routing internally.
 
 ## Key Design Principles
 
