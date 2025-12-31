@@ -112,21 +112,25 @@ This document clarifies the ownership and responsibilities of each service in th
    - Engine: Manages graph topology and graph-level datasource usage
    - Intake: Orchestrates configuration resolution and ingestion decisions
 
-## Impact of Rename: connector-admin → datasource-admin
+## Naming: connector-admin = datasource-admin
 
-**No responsibility changes** - This is purely a naming improvement:
-- `connector-admin` suggested managing connector types only
-- `datasource-admin` better reflects managing both:
-  - Connector types (DatasourceDefinition)
-  - Datasource instances (DataSource entity with Tier 1 config)
-- Aligns with the service-level ownership model
+**Note**: The service is named `connector-admin` in the codebase but is referred to as `datasource-admin` in design documents. These are the **same service** - no rename is planned.
 
-The service continues to own:
+The name `connector-admin` remains because:
+- It manages both **connectors** (DatasourceDefinition) and **datasources** (DataSource entity)
+- Renaming would require updating multiple repositories, CI configs, and service references
+- The gRPC service name (`DataSourceAdminService`) already reflects the datasource focus
+
+When reading documentation:
+- `datasource-admin` = `connector-admin` (same service)
+- Both terms may be used interchangeably
+
+The service owns:
 - ✅ Service-level datasource management (Tier 1)
 - ✅ Connector/DatasourceDefinition registration
 - ✅ DataSource entity lifecycle
 
-The service still does NOT own:
+The service does NOT own:
 - ❌ Graph-level configuration (Tier 2) - Engine owns this
 - ❌ Graph topology/routing - Engine owns this
 

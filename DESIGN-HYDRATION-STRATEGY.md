@@ -4,6 +4,8 @@
 
 This document defines the **config-driven hydration strategy** for `connector-intake-service`. The service acts as the **decision coordinator** for persistence, applying policies from datasource configuration to determine when to persist documents vs. pass them through directly to the engine.
 
+> **Naming Note**: This document refers to `datasource-admin` for the service that manages connectors and datasources. In the codebase, this service is named `connector-admin`. They are the **same service** - see `DESIGN-SERVICE-RESPONSIBILITIES.md` for details.
+
 ## Core Principle: Intake Coordinates
 
 **connector-intake-service is the decision maker**. It is not a dumb proxy; it applies the "Ingest Policy" (Save vs. Pass-through) based on datasource configuration.
