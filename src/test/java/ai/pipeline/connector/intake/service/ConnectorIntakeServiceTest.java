@@ -202,7 +202,7 @@ class ConnectorIntakeServiceTest {
 
         assertFalse(response.getSuccess());
         assertEquals("", response.getDocId());
-        assertTrue(response.getMessage().toLowerCase().contains("doc_id"));
+        assertTrue(response.getMessage().toLowerCase().contains("pipe_doc"));
     }
 
     @Test

@@ -35,6 +35,7 @@ public class ConnectorIntakeIntegrationTest {
                 .setFilename("test.txt")
                 .setMimeType("text/plain")
                 .setContent(ByteString.copyFromUtf8("Hello World"))
+                .setSourceDocId("test-blob")
                 .build();
 
         // Act

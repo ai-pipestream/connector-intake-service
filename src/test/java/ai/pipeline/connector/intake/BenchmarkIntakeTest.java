@@ -223,6 +223,7 @@ public class BenchmarkIntakeTest {
                 .setFilename("benchmark_large.bin")
                 .setMimeType("application/octet-stream")
                 .setContent(content)
+                .setSourceDocId("benchmark-large-file")
                 .build();
 
         LOG.info("Warming up (1 request with smaller payload)...");
@@ -231,6 +232,7 @@ public class BenchmarkIntakeTest {
         Arrays.fill(warmupData, (byte) 1);
         UploadBlobRequest warmupRequest = request.toBuilder()
                 .setContent(ByteString.copyFrom(warmupData))
+                .setSourceDocId("benchmark-warmup")
                 .build();
         long warmupStart = System.nanoTime();
         intakeClient.uploadBlob(warmupRequest).await().atMost(Duration.ofSeconds(30));
