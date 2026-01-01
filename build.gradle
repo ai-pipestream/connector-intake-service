@@ -79,6 +79,7 @@ dependencies {
     implementation libs.password4j  // For API key verification
     implementation 'com.google.code.gson:gson:2.10.1'  // For JSON processing
     implementation libs.guava
+    implementation 'commons-validator:commons-validator:1.10.1'  // For URI validation and canonicalization
     
     // Testing
     testImplementation 'io.quarkus:quarkus-junit5'

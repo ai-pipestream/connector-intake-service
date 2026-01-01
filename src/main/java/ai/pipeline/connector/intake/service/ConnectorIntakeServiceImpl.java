@@ -21,6 +21,7 @@ import ai.pipestream.data.v1.IngestionConfig;
 import ai.pipestream.data.v1.DocIdDerivation;
 import ai.pipestream.data.v1.DocIdDerivationMethod;
 import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
+import ai.pipeline.connector.intake.util.UriCanonicalizer;
 import ai.pipestream.repository.filesystem.upload.v1.MutinyNodeUploadServiceGrpc;
 import com.google.protobuf.Timestamp;
 import io.quarkus.grpc.GrpcService;
@@ -153,28 +154,58 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
     }
 
     /**
-     * Canonicalize a URI for consistent hashing.
+     * Canonicalize a URI for consistent hashing using comprehensive normalization.
      * <p>
-     * - Lowercase scheme and host
-     * - Remove trailing slashes
-     * - Normalize query parameter order (basic)
+     * Delegates to {@link UriCanonicalizer} for proper URI validation and normalization:
+     * - Validates URI syntax
+     * - Normalizes path navigation (../, ./)
+     * - Lowercases scheme and host only (preserves path/query case)
+     * - Removes trailing slashes (except root)
+     * - Sorts query parameters alphabetically
+     * - Removes default ports (:80, :443)
+     * - Removes fragments
+     *
+     * @param uri The raw URI to canonicalize
+     * @return Canonicalized URI string, or null if input is null
      */
     private String canonicalizeUri(String uri) {
-        if (uri == null) return null;
-        // Basic canonicalization - could be enhanced
-        return uri.trim().toLowerCase().replaceAll("/$", "");
+        if (uri == null || uri.isBlank()) {
+            return null;
+        }
+        try {
+            return UriCanonicalizer.canonicalizeUri(uri, true); // Keep query params
+        } catch (IllegalArgumentException e) {
+            LOG.warnf("Failed to canonicalize URI '%s': %s - using original", uri, e.getMessage());
+            return uri.trim(); // Fallback to trimmed original on validation failure
+        }
     }
 
     /**
      * Normalize a file path for consistent hashing.
      * <p>
+     * Normalization rules:
      * - Remove leading/trailing whitespace
-     * - Normalize separators
+     * - Normalize separators (forward slashes)
      * - Remove redundant separators
+     * - Remove leading slash (for relative paths)
+     * - Handles both Unix and Windows-style paths
+     *
+     * @param path The raw path to normalize
+     * @return Normalized path string, or null if input is null
      */
     private String normalizePath(String path) {
-        if (path == null) return null;
-        return path.trim().replaceAll("/+", "/").replaceAll("^/", "");
+        if (path == null || path.isBlank()) {
+            return null;
+        }
+        // Normalize Windows backslashes to forward slashes
+        String normalized = path.trim().replace('\\', '/');
+        // Remove redundant slashes
+        normalized = normalized.replaceAll("/+", "/");
+        // Remove leading slash (for relative paths)
+        normalized = normalized.replaceAll("^/", "");
+        // Remove trailing slash
+        normalized = normalized.replaceAll("/$", "");
+        return normalized;
     }
 
     @Override
