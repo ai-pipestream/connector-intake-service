@@ -18,6 +18,8 @@ import ai.pipestream.data.v1.OwnershipContext;
 import ai.pipestream.data.v1.SearchMetadata;
 import ai.pipestream.data.v1.IngressMode;
 import ai.pipestream.data.v1.IngestionConfig;
+import ai.pipestream.data.v1.DocIdDerivation;
+import ai.pipestream.data.v1.DocIdDerivationMethod;
 import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
 import ai.pipestream.repository.filesystem.upload.v1.MutinyNodeUploadServiceGrpc;
 import com.google.protobuf.Timestamp;
@@ -69,6 +71,112 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
      */
     public ConnectorIntakeServiceImpl() {}
 
+    /**
+     * Deterministically derive a doc_id for a document.
+     * <p>
+     * Priority order (first match wins):
+     * 1. Client-provided doc_id (if present)
+     * 2. source_doc_id from request
+     * 3. source_uri from search_metadata (canonicalized)
+     * 4. source_path from search_metadata (normalized)
+     * <p>
+     * Returns null if no deterministic derivation is possible.
+     */
+    private DocIdDerivationResult deriveDocId(String datasourceId, String clientDocId, String sourceDocId,
+                                              SearchMetadata searchMetadata) {
+        // 1. Client-provided doc_id (highest priority)
+        if (clientDocId != null && !clientDocId.isBlank()) {
+            return new DocIdDerivationResult(
+                clientDocId,
+                DocIdDerivationMethod.DOC_ID_DERIVATION_METHOD_CLIENT_PROVIDED,
+                clientDocId
+            );
+        }
+
+        // 2. source_doc_id from request
+        if (sourceDocId != null && !sourceDocId.isBlank()) {
+            String derivedId = datasourceId + ":" + sourceDocId;
+            return new DocIdDerivationResult(
+                derivedId,
+                DocIdDerivationMethod.DOC_ID_DERIVATION_METHOD_SOURCE_DOC_ID,
+                sourceDocId
+            );
+        }
+
+        // 3. source_uri from search_metadata (canonicalized)
+        if (searchMetadata != null && !searchMetadata.getSourceUri().isBlank()) {
+            String canonicalUri = canonicalizeUri(searchMetadata.getSourceUri());
+            String derivedId = datasourceId + ":" + canonicalUri;
+            return new DocIdDerivationResult(
+                derivedId,
+                DocIdDerivationMethod.DOC_ID_DERIVATION_METHOD_SOURCE_URI,
+                searchMetadata.getSourceUri()
+            );
+        }
+
+        // 4. source_path from search_metadata (normalized)
+        if (searchMetadata != null && !searchMetadata.getSourcePath().isBlank()) {
+            String normalizedPath = normalizePath(searchMetadata.getSourcePath());
+            String derivedId = datasourceId + ":" + normalizedPath;
+            return new DocIdDerivationResult(
+                derivedId,
+                DocIdDerivationMethod.DOC_ID_DERIVATION_METHOD_SOURCE_PATH,
+                searchMetadata.getSourcePath()
+            );
+        }
+
+        // No deterministic derivation possible
+        return null;
+    }
+
+    /**
+     * Result of doc_id derivation containing the derived ID and provenance info.
+     */
+    private static class DocIdDerivationResult {
+        final String docId;
+        final DocIdDerivationMethod method;
+        final String input;
+
+        DocIdDerivationResult(String docId, DocIdDerivationMethod method, String input) {
+            this.docId = docId;
+            this.method = method;
+            this.input = input;
+        }
+
+        DocIdDerivation toProto() {
+            return DocIdDerivation.newBuilder()
+                .setMethod(method)
+                .setInput(input)
+                .setCanonicalInput(docId.substring(docId.indexOf(':') + 1)) // Everything after datasource_id:
+                .build();
+        }
+    }
+
+    /**
+     * Canonicalize a URI for consistent hashing.
+     * <p>
+     * - Lowercase scheme and host
+     * - Remove trailing slashes
+     * - Normalize query parameter order (basic)
+     */
+    private String canonicalizeUri(String uri) {
+        if (uri == null) return null;
+        // Basic canonicalization - could be enhanced
+        return uri.trim().toLowerCase().replaceAll("/$", "");
+    }
+
+    /**
+     * Normalize a file path for consistent hashing.
+     * <p>
+     * - Remove leading/trailing whitespace
+     * - Normalize separators
+     * - Remove redundant separators
+     */
+    private String normalizePath(String path) {
+        if (path == null) return null;
+        return path.trim().replaceAll("/+", "/").replaceAll("^/", "");
+    }
+
     @Override
     public Uni<UploadPipeDocResponse> uploadPipeDoc(UploadPipeDocRequest request) {
         // Validation: all intake requests require datasource_id and api_key.
@@ -91,21 +199,46 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
             );
         }
 
-        // Validation: gRPC callers must provide a doc_id.
-        // (HTTP-style uploads can be assigned server-side IDs, but this RPC is for connector-style ingestion.)
-        if (!request.hasPipeDoc() || request.getPipeDoc().getDocId().isBlank()) {
+        // Validation: gRPC PipeDoc uploads require a deterministically derivable doc_id.
+        if (!request.hasPipeDoc()) {
             return Uni.createFrom().item(
                 UploadPipeDocResponse.newBuilder()
                     .setSuccess(false)
-                    .setDocId(request.hasPipeDoc() ? request.getPipeDoc().getDocId() : "")
-                    .setMessage("Validation error: pipe_doc.doc_id is required")
+                    .setMessage("Validation error: pipe_doc is required")
                     .build()
             );
         }
 
+        PipeDoc originalPipeDoc = request.getPipeDoc();
+
+        // Try to derive doc_id deterministically
+        DocIdDerivationResult derivation = deriveDocId(
+            request.getDatasourceId(),
+            originalPipeDoc.getDocId(),
+            request.getSourceDocId(),
+            originalPipeDoc.getSearchMetadata()
+        );
+
+        if (derivation == null) {
+            return Uni.createFrom().item(
+                UploadPipeDocResponse.newBuilder()
+                    .setSuccess(false)
+                    .setMessage("Validation error: Cannot determine doc_id deterministically. " +
+                        "Provide pipe_doc.doc_id, source_doc_id, search_metadata.source_uri, or search_metadata.source_path")
+                    .build()
+            );
+        }
+
+        // Build the PipeDoc with derived doc_id and provenance
+        PipeDoc.Builder pipeDocBuilder = originalPipeDoc.toBuilder()
+            .setDocId(derivation.docId)
+            .setDocIdDerivation(derivation.toProto());
+
+        PipeDoc pipeDoc = pipeDocBuilder.build();
+
         long startTime = System.nanoTime();
-        LOG.debugf("uploadPipeDoc START: datasource=%s, doc_id=%s",
-            request.getDatasourceId(), request.getPipeDoc().getDocId());
+        LOG.debugf("uploadPipeDoc START: datasource=%s, doc_id=%s (derived via %s)",
+            request.getDatasourceId(), pipeDoc.getDocId(), derivation.method);
 
         return configResolutionService.resolveConfig(request.getDatasourceId(), request.getApiKey())
             .invoke(resolved -> {
@@ -116,10 +249,10 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
             .flatMap(resolved -> {
                 if (resolved.shouldPersist()) {
                     // Path 2a: Persist to repository, then hand off reference to engine
-                    return persistAndHandoff(request.getPipeDoc(), resolved, startTime);
+                    return persistAndHandoff(pipeDoc, resolved, startTime);
                 } else {
                     // Path 2b: Skip persistence, hand off inline document to engine
-                    return handoffInline(request.getPipeDoc(), resolved, startTime);
+                    return handoffInline(pipeDoc, resolved, startTime);
                 }
             })
             .onFailure().recoverWithItem(throwable -> {
@@ -127,8 +260,8 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                 LOG.errorf(throwable, "Failed to upload PipeDoc after %.3f ms", totalTime / 1_000_000.0);
                 return UploadPipeDocResponse.newBuilder()
                     .setSuccess(false)
-                    // Preserve the original client-provided doc_id on failure for easier retries/debugging
-                    .setDocId(request.hasPipeDoc() ? request.getPipeDoc().getDocId() : "")
+                    // Return the derived doc_id on failure for easier retries/debugging
+                    .setDocId(pipeDoc.getDocId())
                     .setMessage(throwable.getMessage())
                     .build();
             });
@@ -283,6 +416,26 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                     .putMetadata("account_id", resolved.tier1Config().getAccountId())
                     .build();
 
+                // Try to derive doc_id deterministically for blob uploads
+                DocIdDerivationResult derivation = deriveDocId(
+                    request.getDatasourceId(),
+                    null, // No client-provided doc_id for blobs
+                    request.getSourceDocId(),
+                    metadata
+                );
+
+                if (derivation == null) {
+                    return Uni.createFrom().item(
+                        UploadBlobResponse.newBuilder()
+                            .setSuccess(false)
+                            .setMessage("Validation error: Cannot determine doc_id deterministically for blob upload. " +
+                                "Provide source_doc_id or set source_path in metadata")
+                            .build()
+                    );
+                }
+
+                LOG.debugf("uploadBlob: derived doc_id=%s via %s", derivation.docId, derivation.method);
+
                 OwnershipContext ownership = OwnershipContext.newBuilder()
                     .setAccountId(resolved.tier1Config().getAccountId())
                     .setConnectorId(resolved.tier1Config().getConnectorId())
@@ -290,7 +443,8 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                     .build();
 
                 PipeDoc pipeDoc = PipeDoc.newBuilder()
-                    .setDocId(UUID.randomUUID().toString())
+                    .setDocId(derivation.docId)
+                    .setDocIdDerivation(derivation.toProto())
                     .setOwnership(ownership)
                     .setSearchMetadata(metadata)
                     .setBlobBag(BlobBag.newBuilder().setBlob(blob).build())
@@ -304,6 +458,7 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                 LOG.errorf(throwable, "Failed to upload Blob after %.3f ms", totalTime / 1_000_000.0);
                 return UploadBlobResponse.newBuilder()
                     .setSuccess(false)
+                    .setDocId("") // No derived doc_id available on failure for blob uploads
                     .setMessage(throwable.getMessage())
                     .build();
             });
