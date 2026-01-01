@@ -196,9 +196,9 @@ When a document is ingested via `connector-intake-service`:
 ```
 
 **Configuration Merging Rules** (applied by engine during IntakeHandoff):
-- Tier 2 values override Tier 1 values
-- Nested objects are deep-merged (not replaced)
-- Arrays in Tier 2 replace arrays in Tier 1 (no merging)
+- Tier 2 values override Tier 1 values (replacement, not deep merge)
+- `custom_config` from Tier 2 REPLACES Tier 1 (no JSON merge - this keeps behavior predictable)
+- `hydration_config` and `output_hints` from Tier 2 override Tier 1 when present
 
 **Note**: Intake only uses Tier 1 config for persistence decisions. Engine merges Tier 2 when routing documents.
 
@@ -352,20 +352,21 @@ message DatasourceInstance {
   NodeConfig node_config = 4;
 
   message NodeConfig {
-    // Optional overrides of Tier 1 config
-    optional ai.pipestream.connector.intake.v1.DataSourceConfig.PersistenceConfig persistence_config = 1;
-    optional ai.pipestream.connector.intake.v1.DataSourceConfig.RetentionConfig retention_config = 2;
-    // Uses shared HydrationConfig from core types
+    // Optional overrides of Tier 1 config - uses shared types from pipeline_core_types.proto
+    optional ai.pipestream.data.v1.PersistenceConfig persistence_config = 1;
+    optional ai.pipestream.data.v1.RetentionConfig retention_config = 2;
     optional ai.pipestream.data.v1.HydrationConfig hydration_config = 3;
 
-    // Uses shared OutputHints from core types
+    // Output hints for downstream processing - uses shared type from core types
     ai.pipestream.data.v1.OutputHints output_hints = 4;
 
-    // Node-specific custom config
+    // Node-specific custom config (JSON Schema-validated)
     google.protobuf.Struct custom_config = 5;
   }
 }
 ```
+
+**Note**: `PersistenceConfig` and `RetentionConfig` are shared types in `pipeline_core_types.proto`, used by both Tier 1 (connector-intake) and Tier 2 (engine) configurations.
 
 #### Configuration Resolution in Intake
 
@@ -513,13 +514,12 @@ This design fits the "Hydration Levels" concept:
    - Provide registration lookup API
 
 4. **Configuration Resolution Service** (connector-intake-service) ✅ **IMPLEMENTED**
-   - Create `ConfigResolutionService` to:
-     - Load Tier 1 config only (Connector defaults + DataSource overrides from datasource-admin)
-       - Merge strongly typed fields (protobuf merge)
-       - Deep merge custom_config JSON objects
+   - Created `ConfigResolutionService` to:
+     - Load Tier 1 config only (from datasource-admin via validation service)
      - Build base IngestionConfig with Tier 1 settings
      - Engine handles Tier 2 config resolution during IntakeHandoff (not in intake)
-   - Update `ConnectorValidationService` to return merged Tier 1 config ✅ **DONE**
+   - Updated `ConnectorValidationService` to return merged Tier 1 config ✅ **DONE**
+   - Intake is graph-agnostic - does NOT call engine for config ✅ **DONE**
 
 ### Phase 2: Implement Hydration Strategy with Config
 
