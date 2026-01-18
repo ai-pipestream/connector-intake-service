@@ -5,6 +5,7 @@ import ai.pipeline.connector.intake.service.EngineClient;
 import ai.pipestream.connector.intake.v1.*;
 import ai.pipestream.data.v1.IngestionConfig;
 import ai.pipestream.engine.v1.IntakeHandoffResponse;
+import ai.pipestream.test.support.ConnectorIntakeWireMockTestResource;
 import com.google.protobuf.ByteString;
 import io.quarkus.grpc.GrpcClient;
 import io.quarkus.test.InjectMock;
@@ -35,7 +36,7 @@ import static org.mockito.Mockito.when;
  * (WireMock server runs Jetty on 8080 and is not representative for benchmarks.)
  */
 @QuarkusTest
-@QuarkusTestResource(value = WireMockTestResource.class, initArgs = @ResourceArg(name = "useDirectGrpc", value = "true"))
+@QuarkusTestResource(value = ConnectorIntakeWireMockTestResource.class, initArgs = @ResourceArg(name = "useDirectGrpc", value = "true"))
 public class BenchmarkIntakeTest {
 
     private static final Logger LOG = Logger.getLogger(BenchmarkIntakeTest.class);

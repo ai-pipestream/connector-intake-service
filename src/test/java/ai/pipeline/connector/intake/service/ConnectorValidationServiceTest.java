@@ -1,7 +1,7 @@
 package ai.pipeline.connector.intake.service;
 
 import io.quarkus.cache.CacheManager;
-import ai.pipeline.connector.intake.WireMockTestResource;
+import ai.pipestream.test.support.ConnectorIntakeWireMockTestResource;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
@@ -15,11 +15,11 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Unit tests for ConnectorValidationService.
  *
- * Uses the pipestream-wiremock-server container as a real gRPC server (via {@link WireMockTestResource}).
+ * Uses the pipestream-wiremock-server container as a real gRPC server (via {@link ConnectorIntakeWireMockTestResource}).
  * No WireMock client libraries and no Mockito.
  */
 @QuarkusTest
-@QuarkusTestResource(WireMockTestResource.class)
+@QuarkusTestResource(ConnectorIntakeWireMockTestResource.class)
 class ConnectorValidationServiceTest {
 
     @Inject

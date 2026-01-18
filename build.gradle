@@ -36,6 +36,7 @@ pipestreamProtos {
     modules {
         // Just register module names - workspace mode handles dependencies automatically
         register("common")
+        register("connector-types")
         register("config")
         register("intake")
         register("admin")
@@ -86,6 +87,7 @@ dependencies {
     // Mockito is allowed for isolated benchmark-style tests (no wiremock libs; wiremock is a Docker gRPC server)
     testImplementation 'io.quarkus:quarkus-junit5-mockito'
     testImplementation 'io.rest-assured:rest-assured'
+    testImplementation(testFixtures("ai.pipestream:pipestream-test-support"))
     testImplementation platform('org.testcontainers:testcontainers-bom:2.0.1')
     testImplementation 'org.testcontainers:testcontainers'
     testImplementation 'org.testcontainers:junit-jupiter'

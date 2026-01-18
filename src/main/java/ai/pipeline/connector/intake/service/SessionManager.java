@@ -4,8 +4,10 @@ import ai.pipeline.connector.intake.entity.CrawlSession;
 import ai.pipeline.connector.intake.repository.CrawlSessionRepository;
 import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.infrastructure.Infrastructure;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.hibernate.Session;
 import org.hibernate.SessionFactory;
 import org.jboss.logging.Logger;
@@ -32,6 +34,48 @@ public class SessionManager {
 
     @Inject
     SessionFactory sessionFactory;
+
+    @ConfigProperty(name = "quarkus.profile", defaultValue = "prod")
+    String profile;
+
+    @ConfigProperty(name = "quarkus.hibernate-orm.schema-management.strategy", defaultValue = "validate")
+    String hibernateSchemaStrategy;
+
+    @PostConstruct
+    void init() {
+        // #region agent log - SessionManager startup analysis
+        LOG.infof("[DEBUG] SessionManager initialized - Profile: %s, Hibernate Schema Strategy: %s",
+                 profile, hibernateSchemaStrategy);
+        // #endregion
+
+        // Check if tables exist
+        try {
+            Session session = sessionFactory.openSession();
+            try {
+                // #region agent log - Checking crawl_sessions table
+                var crawlSessionsExists = session.createNativeQuery(
+                    "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'crawl_sessions')",
+                    Boolean.class).getSingleResult();
+                // #endregion
+
+                // #region agent log - Checking crawl_documents table
+                var crawlDocumentsExists = session.createNativeQuery(
+                    "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'crawl_documents')",
+                    Boolean.class).getSingleResult();
+                // #endregion
+
+                LOG.infof("[DEBUG] Database table check - crawl_sessions exists: %s, crawl_documents exists: %s",
+                         crawlSessionsExists, crawlDocumentsExists);
+
+            } finally {
+                session.close();
+            }
+        } catch (Exception e) {
+            // #region agent log - Error checking tables
+            LOG.errorf(e, "[DEBUG] Failed to check database tables during startup: %s", e.getMessage());
+            // #endregion
+        }
+    }
 
     /**
      * Create a new crawl session.

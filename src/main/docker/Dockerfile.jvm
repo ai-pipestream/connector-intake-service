@@ -23,7 +23,7 @@
 # docker run -i --rm -p 8080:8080 quarkus/connector-intake-service-jvm
 #
 ###
-FROM registry.access.redhat.com/ubi9-minimal:9.5
+FROM registry.access.redhat.com/ubi9-minimal:9.7
 
 # Install Java 21 runtime (headless for smaller size) and update CVEs
 # curl-minimal is pre-installed in ubi9-minimal and supports -f flag for health checks
