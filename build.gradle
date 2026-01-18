@@ -107,6 +107,7 @@ java {
 
 test {
     systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
+    systemProperty "pipestream.wiremock.image", "docker.io/pipestreamai/pipestream-wiremock-server:0.1.30"
     maxHeapSize = "12g"
     jvmArgs = ["-Xmx12g", "-XX:MaxMetaspaceSize=1g", "--add-opens", "java.base/java.lang=ALL-UNNAMED"]
 }
