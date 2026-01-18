@@ -83,6 +83,7 @@ dependencies {
     implementation 'commons-validator:commons-validator:1.10.1'  // For URI validation and canonicalization
     
     // Testing
+    testImplementation platform("ai.pipestream:pipestream-bom:${pipestreamBomVersion}")
     testImplementation 'io.quarkus:quarkus-junit5'
     // Mockito is allowed for isolated benchmark-style tests (no wiremock libs; wiremock is a Docker gRPC server)
     testImplementation 'io.quarkus:quarkus-junit5-mockito'
