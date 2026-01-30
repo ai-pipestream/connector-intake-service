@@ -59,6 +59,8 @@ dependencies {
     implementation 'io.quarkus:quarkus-flyway'
     implementation 'org.flywaydb:flyway-database-postgresql'
     implementation 'io.quarkus:quarkus-smallrye-health'
+    implementation libs.quarkus.rest
+    implementation libs.quarkus.rest.jackson
     implementation 'io.quarkus:quarkus-smallrye-openapi'
     implementation 'io.quarkus:quarkus-cache'
 

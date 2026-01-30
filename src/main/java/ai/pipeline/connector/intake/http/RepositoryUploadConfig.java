@@ -13,9 +13,16 @@ public interface RepositoryUploadConfig {
 
     /**
      * Base URL for repository-service HTTP endpoint (no trailing slash).
+     * If empty, Stork discovery is used.
      */
-    @WithDefault("http://localhost:38102")
+    @WithDefault("")
     String baseUrl();
+
+    /**
+     * Stork service name for repository-service (Consul).
+     */
+    @WithDefault("repository")
+    String serviceName();
 
     /**
      * Raw upload path on repository-service.

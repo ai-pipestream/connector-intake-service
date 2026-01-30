@@ -4,6 +4,8 @@ import io.smallrye.mutiny.Uni;
 import io.smallrye.mutiny.infrastructure.Infrastructure;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import io.smallrye.stork.api.ServiceInstance;
+import io.smallrye.stork.Stork;
 import org.jboss.logging.Logger;
 
 import java.io.InputStream;
@@ -65,6 +67,15 @@ public class RepositoryUploadClient {
     private URI buildRawUploadUri() {
         String baseUrl = config.baseUrl();
         String rawPath = config.rawPath();
+
+        if (baseUrl == null || baseUrl.isBlank()) {
+            ServiceInstance instance = Stork.getInstance().getService(config.serviceName()).selectInstance().await().indefinitely();
+            if (instance == null) {
+                throw new IllegalStateException("No service instance found for " + config.serviceName());
+            }
+            baseUrl = "http://" + instance.getHost() + ":" + instance.getPort();
+        }
+
         if (baseUrl.endsWith("/") && rawPath.startsWith("/")) {
             baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
         }
