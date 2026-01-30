@@ -1,6 +1,7 @@
 package ai.pipeline.connector.intake.http;
 
 import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.infrastructure.Infrastructure;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -50,7 +51,10 @@ public class RepositoryUploadClient {
 
         return Uni.createFrom().completionStage(
             httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-        ).map(response -> {
+        )
+        // Ensure downstream mapping runs on a Quarkus-managed executor (avoid TCCL issues).
+        .emitOn(Infrastructure.getDefaultExecutor())
+        .map(response -> {
             String contentType = response.headers()
                 .firstValue("content-type")
                 .orElse("application/json");

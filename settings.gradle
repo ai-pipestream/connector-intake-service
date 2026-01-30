@@ -12,16 +12,13 @@ dependencyResolutionManagement {
             // Import version catalog from published BOM
             // Available on Maven Central and GitHub Packages
             // Version controlled via gradle.properties
-            from("ai.pipestream:pipestream-bom-catalog:0.7.18")
+            from("ai.pipestream:pipestream-bom-catalog:0.7.20-SNAPSHOT")
         }
     }
 
     repositories {
         // Maven Local for local development (releases only for ai.pipestream)
         mavenLocal {
-            mavenContent {
-                releasesOnly()
-            }
             content {
                 includeGroupByRegex "ai\\.pipestream(\\..*)?"
             }

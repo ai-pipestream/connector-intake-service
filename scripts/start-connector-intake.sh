@@ -81,6 +81,10 @@ export QUARKUS_HTTP_PORT="$SERVICE_PORT"
 # Set registration host using Docker bridge detection
 set_registration_host "connector-intake" "CONNECTOR_INTAKE_SERVICE_HOST"
 
+# Ensure registration uses the detected host for both advertised and internal checks
+export SERVICE_REGISTRATION_ADVERTISED_HOST="$CONNECTOR_INTAKE_SERVICE_HOST"
+export SERVICE_REGISTRATION_INTERNAL_HOST="$CONNECTOR_INTAKE_SERVICE_HOST"
+
 # Set Consul configuration (can be overridden)
 export PIPELINE_CONSUL_HOST="${PIPELINE_CONSUL_HOST:-localhost}"
 export PIPELINE_CONSUL_PORT="${PIPELINE_CONSUL_PORT:-8500}"

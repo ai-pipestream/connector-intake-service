@@ -74,6 +74,7 @@ dependencies {
     implementation 'ai.pipestream:pipestream-quarkus-devservices'
     implementation 'ai.pipestream:quarkus-dynamic-grpc'
     implementation 'ai.pipestream:pipestream-service-registration'
+    implementation 'ai.pipestream:pipestream-server'
 
 
     // Utilities
@@ -88,10 +89,10 @@ dependencies {
     // Mockito is allowed for isolated benchmark-style tests (no wiremock libs; wiremock is a Docker gRPC server)
     testImplementation 'io.quarkus:quarkus-junit5-mockito'
     testImplementation 'io.rest-assured:rest-assured'
-    testImplementation(testFixtures("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}"))
-    testImplementation platform('org.testcontainers:testcontainers-bom:2.0.1')
+    testImplementation("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}")
+    testImplementation platform('org.testcontainers:testcontainers-bom:2.0.2')
     testImplementation 'org.testcontainers:testcontainers'
-    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
     testImplementation 'ai.pipestream:test-documents'
 }
 
@@ -107,7 +108,6 @@ java {
 
 test {
     systemProperty "java.util.logging.manager", "org.jboss.logmanager.LogManager"
-    systemProperty "pipestream.wiremock.image", "docker.io/pipestreamai/pipestream-wiremock-server:0.1.30"
     maxHeapSize = "12g"
     jvmArgs = ["-Xmx12g", "-XX:MaxMetaspaceSize=1g", "--add-opens", "java.base/java.lang=ALL-UNNAMED"]
 }

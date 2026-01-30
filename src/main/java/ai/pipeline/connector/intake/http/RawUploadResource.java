@@ -20,6 +20,7 @@ import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * HTTP upload endpoint for connector raw uploads.
@@ -114,10 +115,10 @@ public class RawUploadResource {
                     : UUID.randomUUID().toString());
 
                 return repositoryUploadClient.uploadRaw(body, contentLength, headers)
-                    .map(result -> Response.status(result.statusCode())
+                    .map(result -> withJaxrsClassLoader(() -> Response.status(result.statusCode())
                         .entity(result.body())
                         .type(result.contentType())
-                        .build());
+                        .build()));
             })
             .onFailure().invoke(throwable -> closeQuietly(body))
             .onFailure().recoverWithItem(throwable -> mapError(throwable));
@@ -143,10 +144,25 @@ public class RawUploadResource {
 
     private Response errorResponse(Response.Status status, String message) {
         String body = "{\"error\":\"" + escapeJson(message) + "\"}";
-        return Response.status(status)
+        return withJaxrsClassLoader(() -> Response.status(status)
             .entity(body)
             .type(MediaType.APPLICATION_JSON)
-            .build();
+            .build());
+    }
+
+    private Response withJaxrsClassLoader(Supplier<Response> builder) {
+        ClassLoader jaxrsLoader = Response.class.getClassLoader();
+        Thread current = Thread.currentThread();
+        ClassLoader original = current.getContextClassLoader();
+        if (original == jaxrsLoader) {
+            return builder.get();
+        }
+        current.setContextClassLoader(jaxrsLoader);
+        try {
+            return builder.get();
+        } finally {
+            current.setContextClassLoader(original);
+        }
     }
 
     private String deriveDocId(String datasourceId,
