@@ -26,7 +26,7 @@ import java.util.UUID;
 public class RepositoryClient {
 
     private static final Logger LOG = Logger.getLogger(RepositoryClient.class);
-    private static final String REPOSITORY_SERVICE_NAME = "repository-service";
+    private static final String REPOSITORY_SERVICE_NAME = "repository";
 
     /**
      * Default constructor for CDI.

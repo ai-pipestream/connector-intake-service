@@ -87,7 +87,7 @@ public class ConnectorValidationService {
             .onFailure(io.grpc.StatusRuntimeException.class)
             .transform(throwable -> {
                 io.grpc.StatusRuntimeException sre = (io.grpc.StatusRuntimeException) throwable;
-                LOG.errorf(sre, "Failed to validate datasource %s", datasourceId);
+                logGrpcFailure("validate datasource " + datasourceId, sre);
                 return sre;
             });
     }
@@ -126,9 +126,20 @@ public class ConnectorValidationService {
                         .withDescription("Account does not exist: " + accountId)
                         .asRuntimeException();
                 }
-                LOG.errorf(sre, "Failed to validate account %s", accountId);
+                logGrpcFailure("validate account " + accountId, sre);
                 return sre;
             });
     }
 
+    private void logGrpcFailure(String context, io.grpc.StatusRuntimeException sre) {
+        // Avoid noisy stack traces for expected auth/permission failures
+        var code = sre.getStatus().getCode();
+        if (code == io.grpc.Status.Code.UNAUTHENTICATED
+                || code == io.grpc.Status.Code.PERMISSION_DENIED
+                || code == io.grpc.Status.Code.NOT_FOUND) {
+            LOG.warnf("Validation failure (%s): %s: %s", code, context, sre.getStatus().getDescription());
+        } else {
+            LOG.errorf(sre, "Unexpected gRPC failure (%s): %s", code, context);
+        }
+    }
 }

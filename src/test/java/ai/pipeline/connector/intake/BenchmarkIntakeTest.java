@@ -55,7 +55,7 @@ public class BenchmarkIntakeTest {
 
     static {
         System.setProperty("quarkus.grpc.server.max-inbound-message-size", "2147483647");
-        System.setProperty("quarkus.grpc.clients.repo-service.max-inbound-message-size", "2147483647");
+        System.setProperty("quarkus.grpc.clients.repository.max-inbound-message-size", "2147483647");
     }
 
     @BeforeEach
