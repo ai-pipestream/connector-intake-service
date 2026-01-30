@@ -8,8 +8,8 @@ plugins {
     id 'com.gradleup.nmcp' version '1.3.0'
     id 'pl.allegro.tech.build.axion-release' version '1.21.1'
     alias(libs.plugins.proto.toolchain)
+    id 'idea'  // IntelliJ IDEA integration
 }
-
 // Semantic versioning with axion-release
 scmVersion {
     tag {
@@ -52,7 +52,6 @@ dependencies {
 
     // Core Quarkus dependencies
     implementation libs.quarkus.arc
-    implementation libs.quarkus.rest
     implementation libs.quarkus.grpc
     implementation 'io.grpc:grpc-services'  // gRPC health and reflection services
     implementation 'io.quarkus:quarkus-hibernate-orm-panache'
