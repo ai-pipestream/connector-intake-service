@@ -4,6 +4,7 @@ import ai.pipestream.connector.intake.v1.DataSourceConfig;
 import ai.pipestream.data.v1.HydrationConfig;
 import ai.pipestream.data.v1.IngestionConfig;
 import ai.pipestream.data.v1.IngressMode;
+import ai.pipestream.data.v1.RightToBeForgottenConfig;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -61,7 +62,7 @@ public class ConfigResolutionService {
     /**
      * Build ResolvedConfig from Tier 1 config only.
      * <p>
-     * Extracts hydration config from Tier 1 for use in IngestionConfig.
+     * Extracts Tier 1 config from DataSourceConfig for use in IngestionConfig.
      * Engine will merge Tier 2 overrides during processing.
      */
     private ResolvedConfig buildResolvedConfig(DataSourceConfig tier1Config) {
@@ -71,12 +72,19 @@ public class ConfigResolutionService {
                 ? tier1Config.getGlobalConfig().getHydrationConfig()
                 : HydrationConfig.getDefaultInstance();
 
+        // Extract RTBF config from Tier 1 (if present)
+        RightToBeForgottenConfig rightToBeForgottenConfig = (tier1Config.hasGlobalConfig() &&
+            tier1Config.getGlobalConfig().hasRightToBeForgotten())
+                ? tier1Config.getGlobalConfig().getRightToBeForgotten()
+                : RightToBeForgottenConfig.getDefaultInstance();
+
         // Build base IngestionConfig with Tier 1 settings
         // Note: IngressMode is set later based on persistence decision
         // Engine will merge Tier 2 overrides (output_hints, custom_config) during IntakeHandoff
         IngestionConfig ingestionConfig = IngestionConfig.newBuilder()
             .setIngressMode(IngressMode.INGRESS_MODE_UNSPECIFIED)
             .setHydrationConfig(hydrationConfig)
+            .setRightToBeForgotten(rightToBeForgottenConfig)
             .build();
 
         return new ResolvedConfig(tier1Config, ingestionConfig);

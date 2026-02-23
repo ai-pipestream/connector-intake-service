@@ -137,4 +137,19 @@ class ConfigResolutionServiceTest {
         // Should be a new instance
         assertNotSame(resolved.ingestionConfig(), withMode);
     }
+
+    @Test
+    void resolvedConfig_defaultsRtbfFieldsToFalse() {
+        // Arrange
+        String datasourceId = "valid-datasource";
+        String apiKey = "valid-api-key";
+
+        // Act
+        ConfigResolutionService.ResolvedConfig resolved =
+            configResolutionService.resolveConfig(datasourceId, apiKey).await().indefinitely();
+
+        // Assert
+        assertFalse(resolved.ingestionConfig().getRightToBeForgotten().getDeleteSearchIndex());
+        assertFalse(resolved.ingestionConfig().getRightToBeForgotten().getDeleteSourceBlobs());
+    }
 }
