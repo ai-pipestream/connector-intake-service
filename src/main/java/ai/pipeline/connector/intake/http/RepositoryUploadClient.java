@@ -36,11 +36,12 @@ public class RepositoryUploadClient {
 
     public Uni<RepositoryUploadResponse> uploadRaw(InputStream body,
                                                    long contentLength,
+                                                   int bufferSize,
                                                    Map<String, String> headers) {
         URI uri = buildRawUploadUri();
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
             .timeout(config.requestTimeout())
-            .POST(new InputStreamBodyPublisher(body, contentLength));
+            .POST(new InputStreamBodyPublisher(body, contentLength, bufferSize));
 
         headers.forEach((key, value) -> {
             if (value != null && !value.isBlank()) {
@@ -54,7 +55,6 @@ public class RepositoryUploadClient {
         return Uni.createFrom().completionStage(
             httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
         )
-        // Ensure downstream mapping runs on a Quarkus-managed executor (avoid TCCL issues).
         .emitOn(Infrastructure.getDefaultExecutor())
         .map(response -> {
             String contentType = response.headers()

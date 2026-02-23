@@ -17,19 +17,19 @@ import java.util.concurrent.Flow;
  */
 final class InputStreamBodyPublisher implements HttpRequest.BodyPublisher {
 
-    private static final int DEFAULT_BUFFER_SIZE = 64 * 1024;
-
     private final InputStream inputStream;
     private final long contentLength;
+    private final int bufferSize;
     private final Executor executor;
 
-    InputStreamBodyPublisher(InputStream inputStream, long contentLength) {
-        this(inputStream, contentLength, Infrastructure.getDefaultExecutor());
+    InputStreamBodyPublisher(InputStream inputStream, long contentLength, int bufferSize) {
+        this(inputStream, contentLength, bufferSize, Infrastructure.getDefaultExecutor());
     }
 
-    InputStreamBodyPublisher(InputStream inputStream, long contentLength, Executor executor) {
+    InputStreamBodyPublisher(InputStream inputStream, long contentLength, int bufferSize, Executor executor) {
         this.inputStream = Objects.requireNonNull(inputStream, "inputStream");
         this.contentLength = contentLength;
+        this.bufferSize = bufferSize;
         this.executor = Objects.requireNonNull(executor, "executor");
     }
 
@@ -41,13 +41,14 @@ final class InputStreamBodyPublisher implements HttpRequest.BodyPublisher {
     @Override
     public void subscribe(Flow.Subscriber<? super ByteBuffer> subscriber) {
         Objects.requireNonNull(subscriber, "subscriber");
-        InputStreamSubscription subscription = new InputStreamSubscription(subscriber, inputStream, executor);
+        InputStreamSubscription subscription = new InputStreamSubscription(subscriber, inputStream, bufferSize, executor);
         subscriber.onSubscribe(subscription);
     }
 
     private static final class InputStreamSubscription implements Flow.Subscription {
         private final Flow.Subscriber<? super ByteBuffer> subscriber;
         private final InputStream inputStream;
+        private final int bufferSize;
         private final Executor executor;
         private final AtomicLong demand = new AtomicLong(0);
         private final AtomicBoolean started = new AtomicBoolean(false);
@@ -56,9 +57,11 @@ final class InputStreamBodyPublisher implements HttpRequest.BodyPublisher {
 
         InputStreamSubscription(Flow.Subscriber<? super ByteBuffer> subscriber,
                                 InputStream inputStream,
+                                int bufferSize,
                                 Executor executor) {
             this.subscriber = subscriber;
             this.inputStream = inputStream;
+            this.bufferSize = bufferSize;
             this.executor = executor;
         }
 
@@ -92,7 +95,7 @@ final class InputStreamBodyPublisher implements HttpRequest.BodyPublisher {
         }
 
         private void pump() {
-            byte[] buffer = new byte[DEFAULT_BUFFER_SIZE];
+            byte[] buffer = new byte[bufferSize];
             try {
                 while (!cancelled) {
                     if (demand.get() <= 0) {
@@ -139,7 +142,6 @@ final class InputStreamBodyPublisher implements HttpRequest.BodyPublisher {
             try {
                 inputStream.close();
             } catch (IOException ignored) {
-                // best-effort close
             }
         }
     }

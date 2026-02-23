@@ -2,6 +2,7 @@ package ai.pipeline.connector.intake.http;
 
 import ai.pipeline.connector.intake.service.ConfigResolutionService;
 import ai.pipeline.connector.intake.util.UriCanonicalizer;
+import ai.pipestream.server.util.ChunkSizeCalculator;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.smallrye.common.annotation.Blocking;
@@ -22,11 +23,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 
-/**
- * HTTP upload endpoint for connector raw uploads.
- * <p>
- * Validates API key, derives doc_id, then proxies to repository-service.
- */
 @Path("/uploads")
 public class RawUploadResource {
 
@@ -37,6 +33,9 @@ public class RawUploadResource {
 
     @Inject
     RepositoryUploadClient repositoryUploadClient;
+
+    @Inject
+    ChunkSizeCalculator chunkSizeCalculator;
 
     @POST
     @Path("/raw")
@@ -114,7 +113,11 @@ public class RawUploadResource {
                     ? requestId
                     : UUID.randomUUID().toString());
 
-                return repositoryUploadClient.uploadRaw(body, contentLength, headers)
+                int chunkSize = chunkSizeCalculator.calculateChunkSize(contentLength);
+                LOG.infof("Proxying upload for doc_id=%s (size: %d bytes, chunk size: %d bytes)", 
+                    derivedDocId, contentLength, chunkSize);
+
+                return repositoryUploadClient.uploadRaw(body, contentLength, chunkSize, headers)
                     .map(result -> withJaxrsClassLoader(() -> Response.status(result.statusCode())
                         .entity(result.body())
                         .type(result.contentType())
@@ -200,7 +203,7 @@ public class RawUploadResource {
         if (path == null || path.isBlank()) {
             return null;
         }
-        String normalized = path.trim().replace('\\', '/');
+        String normalized = path.trim().replace("\\", "/");
         normalized = normalized.replaceAll("/+", "/");
         normalized = normalized.replaceAll("^/", "");
         normalized = normalized.replaceAll("/$", "");
@@ -222,7 +225,6 @@ public class RawUploadResource {
         try {
             body.close();
         } catch (Exception ignored) {
-            // best-effort close
         }
     }
 }
