@@ -73,6 +73,7 @@ dependencies {
     implementation 'ai.pipestream:quarkus-dynamic-grpc'
     implementation 'ai.pipestream:pipestream-service-registration'
     implementation 'ai.pipestream:pipestream-server'
+    implementation 'ai.pipestream:quarkus-apicurio-registry-protobuf'
 
 
     // Utilities
