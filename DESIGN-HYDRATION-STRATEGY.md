@@ -13,6 +13,77 @@ This document defines the **config-driven hydration strategy** for `connector-in
 - **Repository Service**: Utility called when persistence is required, ignored when not
 - **Engine**: Processor that receives PipeDoc; agnostic to whether it has `blob.data` (inline) or `blob.storage_ref` (S3)
 
+### Event and Handoff Boundary
+
+- Intake should not subscribe to all module-level execution events.
+- For normal ingestion we use the existing event and transport model:
+  - Intake decides persistence policy.
+  - Persisted docs use repo save + intake topic -> sidecar -> `intakeHandoff`.
+  - Non-persisted/gRPC inline docs go direct to `intakeHandoff`.
+- `RepositoryEvent` remains the canonical repository event for indexing and reconciliation.
+- Pipeline fan-in/fan-out step events are not required for intake orchestration in this phase.
+
+```mermaid
+flowchart LR
+    A["Intake (gRPC/HTTP)"] --> B{"ShouldPersist?"}
+    B -- true --> C["SavePipeDoc"]
+    B -->|false| F["Construct PipeStream"]
+    C --> D["Repo emits lightweight RepositoryEvent"]
+    C --> E["Publish to intake.<datasource_id> topic"]
+    E --> H["Kafka Sidecar"]
+    H --> F
+    F --> G["Engine.intakeHandoff"]
+    C --> I["StorageRef in PipeDoc"]
+    I --> F
+```
+
+## Ownership / ACL Enrichment (Planned)
+
+We should keep this as a **generic, protocol-first intake boundary**:
+- Add an intake-owned, pluggable gRPC enrichment service.
+- Keep contract identifier-based and connector-agnostic.
+- Use this as an insertion point before building the final `PipeStream`.
+
+Proposed proto shape:
+
+```protobuf
+service OwnershipContextService {
+  rpc ResolveOwnershipContext(ResolveOwnershipContextRequest) returns (ResolveOwnershipContextResponse);
+}
+
+message ResolveOwnershipContextRequest {
+  string doc_id = 1;
+  string account_id = 2;
+  string datasource_id = 3;
+  optional string connector_id = 4;
+  optional string graph_address_id = 5;
+  optional string checksum = 6;
+  optional string version_id = 7;
+}
+
+message ResolveOwnershipContextResponse {
+  OwnershipContext ownership_context = 1;
+}
+
+message OwnershipContext {
+  string owner_principal = 1;
+  repeated string acl_principals = 2;
+  map<string, string> metadata_hints = 3;
+  string requested_collection = 4;
+}
+```
+
+Guidance:
+- Implement first connector-specific enrichment in Java inside intake.
+- Keep `ownership_context` as a generic, reusable proto contract so future connector integrations can plug in without schema churn.
+- At this stage, no new Kafka events are required for the enrichment call.
+
+### Builder/Message Assembly Note
+
+- You can keep a mutable `PipeDoc.Builder` during intake orchestration and enrich in memory before final handoff.
+- gRPC and Kafka carry immutable protobuf messages; the finalized `PipeDoc` should still be built once per hop for each outbound call.
+- This is exactly the correct pattern for chained enrichment inside intake.
+
 ## Hydration Strategy: Config-Driven
 
 ### Source of Configuration
