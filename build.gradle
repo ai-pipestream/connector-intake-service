@@ -59,6 +59,7 @@ dependencies {
     implementation 'io.quarkus:quarkus-flyway'
     implementation 'org.flywaydb:flyway-database-postgresql'
     implementation libs.quarkus.rest.jackson
+    implementation libs.quarkus.rest.client
     implementation 'io.quarkus:quarkus-cache'
 
     // Service discovery and registration (matches connector-service baseline)

@@ -39,7 +39,7 @@ public class RepositoryUploadTestResource implements QuarkusTestResourceLifecycl
         LOG.infof("Mock repository upload server started at %s", baseUrl);
 
         return Map.of(
-            "connector-intake.repository-upload.base-url", baseUrl
+            "quarkus.rest-client.repository-upload.url", baseUrl
         );
     }
 
