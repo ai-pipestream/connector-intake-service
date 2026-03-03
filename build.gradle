@@ -180,6 +180,7 @@ publishing {
 
     repositories {
         mavenLocal()
+        mavenLocal()
 
         // GitHub Packages
         def ghRepo = System.getenv('GITHUB_REPOSITORY') ?: 'ai-pipestream/connector-intake-service'
