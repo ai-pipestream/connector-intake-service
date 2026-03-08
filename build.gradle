@@ -97,6 +97,10 @@ dependencies {
     testImplementation 'ai.pipestream:test-documents'
 }
 
+configurations.all {
+    resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
+}
+
 group = 'ai.pipestream'
 version = "${scmVersion.version}"
 
