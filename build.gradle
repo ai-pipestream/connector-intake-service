@@ -5,7 +5,7 @@ plugins {
     alias(libs.plugins.quarkus)
     alias(libs.plugins.maven.publish)
     id 'signing'
-    id 'com.gradleup.nmcp' version '1.3.0'
+    id 'com.gradleup.nmcp' version '1.4.4'
     id 'pl.allegro.tech.build.axion-release' version '1.21.1'
     alias(libs.plugins.proto.toolchain)
     id 'idea'  // IntelliJ IDEA integration
