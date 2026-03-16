@@ -5,7 +5,7 @@ plugins {
     alias(libs.plugins.quarkus)
     alias(libs.plugins.maven.publish)
     id 'signing'
-    id 'com.gradleup.nmcp' version '1.3.0'
+    id 'com.gradleup.nmcp' version '1.4.4'
     id 'pl.allegro.tech.build.axion-release' version '1.21.1'
     alias(libs.plugins.proto.toolchain)
     id 'idea'  // IntelliJ IDEA integration
@@ -79,7 +79,7 @@ dependencies {
 
     // Utilities
     implementation libs.password4j  // For API key verification
-    implementation 'com.google.code.gson:gson:2.10.1'  // For JSON processing
+    implementation 'com.google.code.gson:gson:2.13.2'  // For JSON processing
     implementation libs.guava
     implementation 'commons-validator:commons-validator:1.10.1'  // For URI validation and canonicalization
     implementation 'io.quarkus:quarkus-messaging-kafka'
@@ -91,7 +91,7 @@ dependencies {
     testImplementation 'io.quarkus:quarkus-junit5-mockito'
     testImplementation 'io.rest-assured:rest-assured'
     testImplementation("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}")
-    testImplementation platform('org.testcontainers:testcontainers-bom:2.0.2')
+    testImplementation platform('org.testcontainers:testcontainers-bom:2.0.3')
     testImplementation 'org.testcontainers:testcontainers'
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
     testImplementation 'ai.pipestream:test-documents'
