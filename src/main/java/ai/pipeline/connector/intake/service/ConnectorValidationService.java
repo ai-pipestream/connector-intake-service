@@ -96,7 +96,26 @@ public class ConnectorValidationService {
      * Validate that an account exists and is active.
      */
     private Uni<Void> validateAccountActive(String accountId) {
-        LOG.debugf("Validating account is active: %s", accountId);
+        return isAccountActive(accountId)
+            .flatMap(active -> {
+                if (!active) {
+                    return Uni.createFrom().failure(
+                        Status.PERMISSION_DENIED
+                            .withDescription("Account is inactive or does not exist: " + accountId)
+                            .asRuntimeException()
+                    );
+                }
+                return Uni.createFrom().voidItem();
+            });
+    }
+
+    /**
+     * Cached account active status lookup. Calls account-service via gRPC and
+     * caches the result to avoid repeated lookups for the same account.
+     */
+    @CacheResult(cacheName = "account-active")
+    Uni<Boolean> isAccountActive(String accountId) {
+        LOG.debugf("Account cache miss, looking up: %s", accountId);
 
         return grpcClientFactory.getClient(ACCOUNT_SERVICE_NAME, MutinyAccountServiceGrpc::newMutinyStub)
             .flatMap(stub -> stub.getAccount(
@@ -104,30 +123,20 @@ public class ConnectorValidationService {
                     .setAccountId(accountId)
                     .build()
             ))
-            .flatMap(response -> {
-                ai.pipestream.repository.account.v1.Account account = response.getAccount();
-                if (!account.getActive()) {
-                    LOG.warnf("Account %s exists but is inactive", accountId);
-                    return Uni.createFrom().failure(
-                        Status.PERMISSION_DENIED
-                            .withDescription("Account is inactive: " + accountId)
-                            .asRuntimeException()
-                    );
-                }
-                LOG.debugf("Account %s validated successfully", accountId);
-                return Uni.createFrom().voidItem();
+            .map(response -> {
+                boolean active = response.getAccount().getActive();
+                LOG.debugf("Account %s lookup result: active=%s", accountId, active);
+                return active;
             })
             .onFailure(io.grpc.StatusRuntimeException.class)
-            .transform(throwable -> {
+            .recoverWithItem(throwable -> {
                 io.grpc.StatusRuntimeException sre = (io.grpc.StatusRuntimeException) throwable;
                 if (sre.getStatus().getCode() == io.grpc.Status.Code.NOT_FOUND) {
                     LOG.warnf("Account not found: %s", accountId);
-                    return Status.PERMISSION_DENIED
-                        .withDescription("Account does not exist: " + accountId)
-                        .asRuntimeException();
+                } else {
+                    logGrpcFailure("validate account " + accountId, sre);
                 }
-                logGrpcFailure("validate account " + accountId, sre);
-                return sre;
+                return false;
             });
     }
 
