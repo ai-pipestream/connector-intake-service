@@ -91,7 +91,7 @@ dependencies {
     testImplementation 'io.quarkus:quarkus-junit5-mockito'
     testImplementation 'io.rest-assured:rest-assured'
     testImplementation("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}")
-    testImplementation platform('org.testcontainers:testcontainers-bom:2.0.3')
+    testImplementation platform('org.testcontainers:testcontainers-bom:2.0.4')
     testImplementation 'org.testcontainers:testcontainers'
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
     testImplementation 'ai.pipestream:test-documents'
