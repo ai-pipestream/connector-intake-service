@@ -20,7 +20,6 @@ import org.jboss.logging.Logger;
 public class IntakeRepoEventConsumer {
 
     private static final Logger LOG = Logger.getLogger(IntakeRepoEventConsumer.class);
-    private static final String INTAKE_SOURCE_NODE_ID = "connector-intake";
     private static final String API_KEY_METADATA_FIELD = "api_key";
 
     @Inject
@@ -99,9 +98,13 @@ public class IntakeRepoEventConsumer {
     }
 
     private Uni<Void> handoffToEngine(IntakeRepoEvent event, IngestionConfig ingestionConfig) {
+        // graph_address_id for intake matches datasource_id (see repository-service IntakeRepoEvent emission).
+        String graphAddressId = event.getSourceNodeId().isBlank()
+                ? event.getDatasourceId()
+                : event.getSourceNodeId();
         return engineClient.handoffReferenceToEngine(
                 event.getDocId(),
-                event.getSourceNodeId().isBlank() ? INTAKE_SOURCE_NODE_ID : event.getSourceNodeId(),
+                graphAddressId,
                 event.getDatasourceId(),
                 event.getAccountId(),
                 ingestionConfig

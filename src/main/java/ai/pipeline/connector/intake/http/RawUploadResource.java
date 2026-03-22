@@ -23,6 +23,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 
+/**
+ * HTTP endpoint for raw binary uploads from connectors ({@code POST /uploads/raw}).
+ * Validates headers, derives document identity, and streams the body to repository-service.
+ */
 @Path("/uploads")
 public class RawUploadResource {
 

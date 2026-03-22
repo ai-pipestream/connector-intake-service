@@ -53,7 +53,6 @@ import java.util.UUID;
 public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc.ConnectorIntakeServiceImplBase {
 
     private static final Logger LOG = Logger.getLogger(ConnectorIntakeServiceImpl.class);
-    private static final String INTAKE_SOURCE_NODE_ID = "connector-intake";
 
     @Inject
     ConfigResolutionService configResolutionService;
@@ -336,10 +335,11 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                 IngestionConfig ingestionConfig = resolved.withIngressMode(IngressMode.INGRESS_MODE_HTTP_STAGED);
 
                 // Hand off document reference to engine (engine resolves graph routing)
+                String datasourceId = resolved.tier1Config().getDatasourceId();
                 return engineClient.handoffReferenceToEngine(
                     repoResponse.getDocumentId(),
-                    INTAKE_SOURCE_NODE_ID,
-                    resolved.tier1Config().getDatasourceId(),
+                    datasourceId,
+                    datasourceId,
                     resolved.tier1Config().getAccountId(),
                     ingestionConfig
                 ).map(handoffResponse -> {
@@ -528,11 +528,12 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
 
                 IngestionConfig ingestionConfig = resolved.withIngressMode(IngressMode.INGRESS_MODE_HTTP_STAGED);
 
+                String datasourceId = resolved.tier1Config().getDatasourceId();
                 // Hand off document reference to engine (engine resolves graph routing)
                 return engineClient.handoffReferenceToEngine(
                     repoResponse.getDocumentId(),
-                    INTAKE_SOURCE_NODE_ID,
-                    resolved.tier1Config().getDatasourceId(),
+                    datasourceId,
+                    datasourceId,
                     resolved.tier1Config().getAccountId(),
                     ingestionConfig
                 ).map(handoffResponse -> {

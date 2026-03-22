@@ -116,7 +116,8 @@ public class EngineClient {
      * Engine will hydrate the document when needed based on ingestion config.
      *
      * @param docId The document ID (in repository)
-     * @param sourceNodeId The node that produced the document (for hydration lookup)
+     * @param sourceNodeId Graph address for repository hydration ({@code DocumentReference.graph_address_id});
+     *                     for initial intake this matches {@code datasource_id}
      * @param datasourceId The datasource ID for routing (engine resolves entry node)
      * @param accountId The account ID for ownership
      * @param ingestionConfig The Tier 1 ingestion configuration (engine merges Tier 2)
@@ -152,7 +153,7 @@ public class EngineClient {
         // Build DocumentReference
         ai.pipestream.data.v1.DocumentReference docRef = ai.pipestream.data.v1.DocumentReference.newBuilder()
             .setDocId(docId)
-            .setSourceNodeId(sourceNodeId)
+            .setGraphAddressId(sourceNodeId)
             .setAccountId(accountId)
             .build();
 
