@@ -8,6 +8,7 @@ import ai.pipestream.engine.v1.IntakeHandoffRequest;
 import ai.pipestream.engine.v1.IntakeHandoffResponse;
 import ai.pipestream.engine.v1.MutinyEngineV1ServiceGrpc;
 import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
+import ai.pipestream.server.constants.PipestreamServices;
 import com.google.protobuf.Timestamp;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -31,7 +32,7 @@ import java.util.UUID;
 public class EngineClient {
 
     private static final Logger LOG = Logger.getLogger(EngineClient.class);
-    private static final String ENGINE_SERVICE_NAME = "pipestream-engine";
+    private static final String ENGINE_SERVICE_NAME = PipestreamServices.ENGINE.serviceName();
 
     @Inject
     DynamicGrpcClientFactory grpcClientFactory;
