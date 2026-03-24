@@ -277,12 +277,28 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                     configTime / 1_000_000.0, resolved.shouldPersist());
             })
             .flatMap(resolved -> {
+                // Stamp ownership from resolved credentials if missing on the PipeDoc.
+                // UploadBlob sets this automatically; UploadPipeDoc callers (e.g., JDBC connector)
+                // may not have it. The intake has the account_id and datasource_id from the
+                // validated API key — inject them so downstream services (repo, engine) accept the doc.
+                PipeDoc docWithOwnership = pipeDoc;
+                if (!pipeDoc.hasOwnership()) {
+                    docWithOwnership = pipeDoc.toBuilder()
+                        .setOwnership(ai.pipestream.data.v1.OwnershipContext.newBuilder()
+                            .setAccountId(resolved.tier1Config().getAccountId())
+                            .setDatasourceId(resolved.tier1Config().getDatasourceId())
+                            .build())
+                        .build();
+                    LOG.debugf("uploadPipeDoc: stamped ownership from resolved config (account=%s, ds=%s)",
+                        resolved.tier1Config().getAccountId(), resolved.tier1Config().getDatasourceId());
+                }
+
                 if (resolved.shouldPersist()) {
                     // Path 2a: Persist to repository, then hand off reference to engine
-                    return persistAndHandoff(pipeDoc, resolved, startTime);
+                    return persistAndHandoff(docWithOwnership, resolved, startTime);
                 } else {
                     // Path 2b: Skip persistence, hand off inline document to engine
-                    return handoffInline(pipeDoc, resolved, startTime);
+                    return handoffInline(docWithOwnership, resolved, startTime);
                 }
             })
             .onFailure().recoverWithItem(throwable -> {
