@@ -98,10 +98,10 @@ public class IntakeRepoEventConsumer {
     }
 
     private Uni<Void> handoffToEngine(IntakeRepoEvent event, IngestionConfig ingestionConfig) {
-        // graph_address_id for intake matches datasource_id (see repository-service IntakeRepoEvent emission).
-        String graphAddressId = event.getSourceNodeId().isBlank()
-                ? event.getDatasourceId()
-                : event.getSourceNodeId();
+        // graph_address_id for intake always uses datasource_id — the engine looks up
+        // the DatasourceInstance by datasource_id to find the graph entry node.
+        // source_node_id is informational only (e.g. "connector-intake") and must NOT be used as graph_address_id.
+        String graphAddressId = event.getDatasourceId();
         return engineClient.handoffReferenceToEngine(
                 event.getDocId(),
                 graphAddressId,

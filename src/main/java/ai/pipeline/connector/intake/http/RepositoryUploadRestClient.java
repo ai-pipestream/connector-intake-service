@@ -26,6 +26,7 @@ public interface RepositoryUploadRestClient {
         @HeaderParam("Content-Length") long contentLength,
         @HeaderParam("x-account-id") String accountId,
         @HeaderParam("x-connector-id") String connectorId,
+        @HeaderParam("x-datasource-id") String datasourceId,
         @HeaderParam("x-doc-id") String docId,
         @HeaderParam("x-drive-name") String driveName,
         @HeaderParam("x-filename") String filename,

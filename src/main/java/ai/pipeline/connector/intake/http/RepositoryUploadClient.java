@@ -28,6 +28,7 @@ public class RepositoryUploadClient {
         String contentType = headers.get("Content-Type");
         String accountId = headers.get("x-account-id");
         String connectorId = headers.get("x-connector-id");
+        String datasourceId = headers.get("x-datasource-id");
         String docId = headers.get("x-doc-id");
         String driveName = headers.get("x-drive-name");
         String filename = headers.get("x-filename");
@@ -37,7 +38,7 @@ public class RepositoryUploadClient {
         LOG.debugf("Proxying raw upload to repository-service via REST client (doc_id=%s)", docId);
 
         return restClient.uploadRaw(body, contentType, contentLength, accountId, connectorId,
-                docId, driveName, filename, checksumSha256, requestId)
+                datasourceId, docId, driveName, filename, checksumSha256, requestId)
             .map(response -> {
                 String respContentType = response.getHeaderString("content-type");
                 if (respContentType == null || respContentType.isBlank()) {

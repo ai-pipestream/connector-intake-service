@@ -105,6 +105,7 @@ public class RawUploadResource {
                 }
                 headers.put("x-account-id", accountId);
                 headers.put("x-connector-id", connectorId);
+                headers.put("x-datasource-id", datasourceId);
                 headers.put("x-doc-id", derivedDocId);
                 headers.put("x-drive-name", driveName);
                 if (filename != null && !filename.isBlank()) {
