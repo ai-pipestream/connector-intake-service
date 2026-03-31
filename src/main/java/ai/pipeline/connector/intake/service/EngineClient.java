@@ -60,27 +60,37 @@ public class EngineClient {
             String datasourceId,
             String accountId,
             IngestionConfig ingestionConfig) {
+        return handoffToEngine(pipeDoc, datasourceId, accountId, ingestionConfig, null);
+    }
+
+    public Uni<IntakeHandoffResponse> handoffToEngine(
+            PipeDoc pipeDoc,
+            String datasourceId,
+            String accountId,
+            IngestionConfig ingestionConfig,
+            String crawlId) {
 
         LOG.debugf("Handing off document to engine: doc_id=%s, datasource=%s",
             pipeDoc.getDocId(), datasourceId);
 
-        // Build StreamMetadata with Tier 1 ingestion config
-        // Engine will merge Tier 2 overrides during processing
         Instant now = Instant.now();
         Timestamp timestamp = Timestamp.newBuilder()
             .setSeconds(now.getEpochSecond())
             .setNanos(now.getNano())
             .build();
 
-        StreamMetadata metadata = StreamMetadata.newBuilder()
+        StreamMetadata.Builder metaBuilder = StreamMetadata.newBuilder()
             .setSourceId(datasourceId)
             .setCreatedAt(timestamp)
             .setLastProcessedAt(timestamp)
             .setTraceId(UUID.randomUUID().toString())
             .setDatasourceId(datasourceId)
             .setAccountId(accountId)
-            .setIngestionConfig(ingestionConfig)
-            .build();
+            .setIngestionConfig(ingestionConfig);
+        if (crawlId != null && !crawlId.isEmpty()) {
+            metaBuilder.setCrawlId(crawlId);
+        }
+        StreamMetadata metadata = metaBuilder.build();
 
         // Build PipeStream with inline document
         PipeStream pipeStream = PipeStream.newBuilder()
@@ -130,26 +140,38 @@ public class EngineClient {
             String datasourceId,
             String accountId,
             IngestionConfig ingestionConfig) {
+        return handoffReferenceToEngine(docId, sourceNodeId, datasourceId, accountId, ingestionConfig, null);
+    }
+
+    public Uni<IntakeHandoffResponse> handoffReferenceToEngine(
+            String docId,
+            String sourceNodeId,
+            String datasourceId,
+            String accountId,
+            IngestionConfig ingestionConfig,
+            String crawlId) {
 
         LOG.debugf("Handing off document reference to engine: doc_id=%s, datasource=%s",
             docId, datasourceId);
 
-        // Build StreamMetadata with Tier 1 ingestion config
         Instant now = Instant.now();
         Timestamp timestamp = Timestamp.newBuilder()
             .setSeconds(now.getEpochSecond())
             .setNanos(now.getNano())
             .build();
 
-        StreamMetadata metadata = StreamMetadata.newBuilder()
+        StreamMetadata.Builder metaBuilder = StreamMetadata.newBuilder()
             .setSourceId(datasourceId)
             .setCreatedAt(timestamp)
             .setLastProcessedAt(timestamp)
             .setTraceId(UUID.randomUUID().toString())
             .setDatasourceId(datasourceId)
             .setAccountId(accountId)
-            .setIngestionConfig(ingestionConfig)
-            .build();
+            .setIngestionConfig(ingestionConfig);
+        if (crawlId != null && !crawlId.isEmpty()) {
+            metaBuilder.setCrawlId(crawlId);
+        }
+        StreamMetadata metadata = metaBuilder.build();
 
         // Build DocumentReference
         ai.pipestream.data.v1.DocumentReference docRef = ai.pipestream.data.v1.DocumentReference.newBuilder()
