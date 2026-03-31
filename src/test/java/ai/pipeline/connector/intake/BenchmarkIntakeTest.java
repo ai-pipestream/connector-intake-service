@@ -113,7 +113,7 @@ public class BenchmarkIntakeTest {
                 .setAssignedStreamId("stream-1")
                 .setEntryNodeId("node-1")
                 .build();
-        when(engineClient.handoffReferenceToEngine(anyString(), anyString(), anyString(), anyString(), any()))
+        when(engineClient.handoffReferenceToEngine(anyString(), anyString(), anyString(), anyString(), any(), any()))
                 .thenReturn(Uni.createFrom().item(handoffResponse));
 
         UploadBlobRequest request = UploadBlobRequest.newBuilder()
@@ -215,7 +215,7 @@ public class BenchmarkIntakeTest {
                 .setAssignedStreamId("stream-2")
                 .setEntryNodeId("node-1")
                 .build();
-        when(engineClient.handoffReferenceToEngine(anyString(), anyString(), anyString(), anyString(), any()))
+        when(engineClient.handoffReferenceToEngine(anyString(), anyString(), anyString(), anyString(), any(), any()))
                 .thenReturn(Uni.createFrom().item(handoffResponse));
 
         UploadBlobRequest request = UploadBlobRequest.newBuilder()
