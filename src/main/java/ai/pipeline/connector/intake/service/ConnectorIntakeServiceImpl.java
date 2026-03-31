@@ -293,12 +293,13 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                         resolved.tier1Config().getAccountId(), resolved.tier1Config().getDatasourceId());
                 }
 
+                String crawlId = request.getCrawlId();
                 if (resolved.shouldPersist()) {
                     // Path 2a: Persist to repository, then hand off reference to engine
-                    return persistAndHandoff(docWithOwnership, resolved, startTime);
+                    return persistAndHandoff(docWithOwnership, resolved, startTime, crawlId);
                 } else {
                     // Path 2b: Skip persistence, hand off inline document to engine
-                    return handoffInline(docWithOwnership, resolved, startTime);
+                    return handoffInline(docWithOwnership, resolved, startTime, crawlId);
                 }
             })
             .onFailure().recoverWithItem(throwable -> {
@@ -321,7 +322,8 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
     private Uni<UploadPipeDocResponse> persistAndHandoff(
             PipeDoc pipeDoc,
             ConfigResolutionService.ResolvedConfig resolved,
-            long startTime) {
+            long startTime,
+            String crawlId) {
 
         LOG.debugf("Persisting document to repository: doc_id=%s", pipeDoc.getDocId());
 
@@ -357,7 +359,8 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                     datasourceId,
                     datasourceId,
                     resolved.tier1Config().getAccountId(),
-                    ingestionConfig
+                    ingestionConfig,
+                    crawlId
                 ).map(handoffResponse -> {
                     long totalTime = System.nanoTime() - startTime;
                     LOG.debugf("uploadPipeDoc: complete in %.3f ms, accepted=%s",
@@ -382,7 +385,8 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
     private Uni<UploadPipeDocResponse> handoffInline(
             PipeDoc pipeDoc,
             ConfigResolutionService.ResolvedConfig resolved,
-            long startTime) {
+            long startTime,
+            String crawlId) {
 
         LOG.debugf("Skipping persistence, handing off inline: doc_id=%s", pipeDoc.getDocId());
 
@@ -394,7 +398,8 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
             pipeDoc,
             resolved.tier1Config().getDatasourceId(),
             resolved.tier1Config().getAccountId(),
-            ingestionConfig
+            ingestionConfig,
+            crawlId
         ).map(handoffResponse -> {
             long totalTime = System.nanoTime() - startTime;
             LOG.debugf("uploadPipeDoc: complete in %.3f ms (no persist), accepted=%s",
@@ -498,7 +503,7 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                     .build();
 
                 // Blob uploads always persist (they're typically larger files)
-                return persistAndHandoffBlob(pipeDoc, resolved, startTime);
+                return persistAndHandoffBlob(pipeDoc, resolved, startTime, request.getCrawlId());
             })
             .onFailure().recoverWithItem(throwable -> {
                 long totalTime = System.nanoTime() - startTime;
@@ -520,7 +525,8 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
     private Uni<UploadBlobResponse> persistAndHandoffBlob(
             PipeDoc pipeDoc,
             ConfigResolutionService.ResolvedConfig resolved,
-            long startTime) {
+            long startTime,
+            String crawlId) {
 
         ai.pipestream.repository.filesystem.upload.v1.UploadFilesystemPipeDocRequest repoRequest =
             ai.pipestream.repository.filesystem.upload.v1.UploadFilesystemPipeDocRequest.newBuilder()
@@ -551,7 +557,8 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                     datasourceId,
                     datasourceId,
                     resolved.tier1Config().getAccountId(),
-                    ingestionConfig
+                    ingestionConfig,
+                    crawlId
                 ).map(handoffResponse -> {
                     long totalTime = System.nanoTime() - startTime;
                     LOG.debugf("uploadBlob: complete in %.3f ms, accepted=%s",
