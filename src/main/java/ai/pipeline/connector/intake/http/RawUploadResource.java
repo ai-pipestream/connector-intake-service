@@ -87,7 +87,7 @@ public class RawUploadResource {
             .flatMap(resolved -> {
                 String accountId = resolved.tier1Config().getAccountId();
                 String connectorId = resolved.tier1Config().getConnectorId();
-                String driveName = resolved.tier1Config().getDriveName();
+                String driveName = accountId + ":intake";
 
                 if (accountId == null || accountId.isBlank()) {
                     return Uni.createFrom().item(errorResponse(Response.Status.INTERNAL_SERVER_ERROR, "Account ID missing from config"));
@@ -95,9 +95,7 @@ public class RawUploadResource {
                 if (connectorId == null || connectorId.isBlank()) {
                     return Uni.createFrom().item(errorResponse(Response.Status.INTERNAL_SERVER_ERROR, "Connector ID missing from config"));
                 }
-                if (driveName == null || driveName.isBlank()) {
-                    return Uni.createFrom().item(errorResponse(Response.Status.INTERNAL_SERVER_ERROR, "Drive name missing from config"));
-                }
+                // driveName is derived from accountId (already validated above)
 
                 Map<String, String> headers = new HashMap<>();
                 if (contentType != null && !contentType.isBlank()) {
