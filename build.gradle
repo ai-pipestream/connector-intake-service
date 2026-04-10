@@ -28,14 +28,8 @@ def pipestreamBomVersion = findProperty('pipestreamBomVersion')
 // Using git-proto-workspace mode to handle cross-module dependencies
 pipestreamProtos {
     sourceMode = 'git-proto-workspace'
-    def localProtos = file("${rootDir}/../pipestream-protos")
-    if (localProtos.directory && new File(localProtos, ".git").exists()) {
-        gitRepo = "file://${localProtos.absolutePath}"
-        gitRef = "main"
-    } else {
-        gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
-        gitRef = "main"
-    }
+    gitRepo = "https://github.com/ai-pipestream/pipestream-protos.git"
+    gitRef = "main"
     generateMutiny = true
     generateDescriptors = true
 
