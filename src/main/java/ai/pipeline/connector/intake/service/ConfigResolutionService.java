@@ -109,8 +109,15 @@ public class ConfigResolutionService {
                 tier1Config.getGlobalConfig().hasPersistenceConfig()) {
                 return tier1Config.getGlobalConfig().getPersistenceConfig().getPersistPipedoc();
             }
-            // Default: persist (safe default)
-            return true;
+            // Default changed 2026-04-21 from true → false. The persist path
+            // forces an extra gRPC round-trip to repository per doc before
+            // engine sees it, even for pure gRPC routing graphs that don't
+            // need persistence. On the routing-only benchmark this was the
+            // single biggest per-doc cost. HTTP/blob uploads always persist
+            // regardless (they go through persistAndHandoffBlob, not this
+            // method). Callers that genuinely need durable persist must set
+            // persistence_config.persist_pipedoc=true explicitly.
+            return false;
         }
 
         /**
