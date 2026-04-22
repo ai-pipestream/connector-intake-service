@@ -13,10 +13,13 @@ import com.google.protobuf.Timestamp;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Client for engine service integration.
@@ -36,6 +39,17 @@ public class EngineClient {
 
     @Inject
     DynamicGrpcClientFactory grpcClientFactory;
+
+    /**
+     * Deadline for the engine's {@code intakeHandoff} RPC. Engine's intakeHandoff is
+     * fire-and-forget internally (submits to a virtual-thread executor and returns
+     * {@code accepted=true} immediately), so it should complete in sub-second time.
+     * Without a deadline a stalled gRPC channel silently wedges the intake upload
+     * (observed 2026-04-22: a single {@code uploadPipeDoc} call hung for 30.5 minutes
+     * before returning UNKNOWN because the downstream engine handoff had no timeout).
+     */
+    @ConfigProperty(name = "intake.engine.handoff.deadline-ms", defaultValue = "30000")
+    long engineHandoffDeadlineMs;
 
     /**
      * Default constructor for CDI.
@@ -109,6 +123,10 @@ public class EngineClient {
 
         return grpcClientFactory.getClient(ENGINE_SERVICE_NAME, MutinyEngineV1ServiceGrpc::newMutinyStub)
             .flatMap(stub -> stub.intakeHandoff(request))
+            .ifNoItem().after(Duration.ofMillis(engineHandoffDeadlineMs))
+                .failWith(() -> new TimeoutException(
+                        "engine.intakeHandoff no response after " + engineHandoffDeadlineMs
+                                + "ms for doc " + pipeDoc.getDocId()))
             .invoke(response -> {
                 if (response.getAccepted()) {
                     LOG.debugf("Engine accepted document: doc_id=%s, stream_id=%s, entry_node=%s",
@@ -197,6 +215,10 @@ public class EngineClient {
 
         return grpcClientFactory.getClient(ENGINE_SERVICE_NAME, MutinyEngineV1ServiceGrpc::newMutinyStub)
             .flatMap(stub -> stub.intakeHandoff(request))
+            .ifNoItem().after(Duration.ofMillis(engineHandoffDeadlineMs))
+                .failWith(() -> new TimeoutException(
+                        "engine.intakeHandoff no response after " + engineHandoffDeadlineMs
+                                + "ms for doc_ref " + docId))
             .invoke(response -> {
                 if (response.getAccepted()) {
                     LOG.debugf("Engine accepted document ref: doc_id=%s, stream_id=%s, entry_node=%s",
