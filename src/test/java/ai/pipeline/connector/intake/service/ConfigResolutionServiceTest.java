@@ -38,7 +38,10 @@ class ConfigResolutionServiceTest {
         assertEquals(datasourceId, resolved.tier1Config().getDatasourceId());
         assertEquals("valid-account", resolved.tier1Config().getAccountId());
         assertNotNull(resolved.ingestionConfig());
-        assertTrue(resolved.shouldPersist()); // Default behavior
+        // Default changed 2026-04-21: shouldPersist defaults to false when no
+        // PersistenceConfig is present on the datasource. Wiremock's default
+        // response has no PersistenceConfig, so we expect false here.
+        assertFalse(resolved.shouldPersist());
     }
 
     @Test
@@ -90,17 +93,23 @@ class ConfigResolutionServiceTest {
     }
 
     @Test
-    void resolveConfig_noPersistenceConfig_defaultsToPersist() {
-        // Arrange - Default response doesn't have PersistenceConfig, should default to persist
+    void resolveConfig_noPersistenceConfig_defaultsToSkipPersist() {
+        // Arrange - Default wiremock response doesn't include PersistenceConfig.
+        // Default changed 2026-04-21 from true → false (see ConfigResolutionService.java:112):
+        // the persist path forces an extra gRPC round-trip to repository per doc
+        // before engine sees it, even for pure gRPC routing graphs that don't need
+        // persistence. Callers that genuinely need durable persist must set
+        // persistence_config.persist_pipedoc=true explicitly.
         String datasourceId = "valid-datasource";
         String apiKey = "valid-api-key";
 
         // Act
-        ConfigResolutionService.ResolvedConfig resolved = 
+        ConfigResolutionService.ResolvedConfig resolved =
             configResolutionService.resolveConfig(datasourceId, apiKey).await().indefinitely();
 
         // Assert
-        assertTrue(resolved.shouldPersist()); // Default: persist (safe default)
+        assertFalse(resolved.shouldPersist(),
+                "When PersistenceConfig is absent, shouldPersist should default to false.");
     }
 
     @Test
