@@ -28,8 +28,13 @@ class ConnectorIntakeServiceTest {
     ConnectorIntakeServiceImpl intakeService;
 
     @Test
-    void uploadPipeDoc_withDefaultResponse_persistsAndHandsOff() {
-        // Arrange - Use default datasource configured by wiremock server
+    void uploadPipeDoc_withDefaultResponse_handsOffInlineWithoutPersist() {
+        // Default wiremock response has no PersistenceConfig, so
+        // shouldPersist() returns false (default changed 2026-04-21 — see
+        // ConfigResolutionService.java:112). The service routes to
+        // handoffInline instead of persistAndHandoff, and the returned
+        // docId is the client-provided one (no mock-doc- prefix from
+        // MockRepositoryService, which is only reached on the persist path).
         String datasourceId = "valid-datasource";
         String apiKey = "valid-api-key";
 
@@ -40,14 +45,13 @@ class ConnectorIntakeServiceTest {
             .build();
 
         // Act
-        ai.pipestream.connector.intake.v1.UploadPipeDocResponse response = 
+        ai.pipestream.connector.intake.v1.UploadPipeDocResponse response =
             intakeService.uploadPipeDoc(request).await().indefinitely();
 
         // Assert
         assertTrue(response.getSuccess());
-        assertFalse(response.getDocId().isEmpty());
-        // Doc ID comes from MockRepositoryService (in-process @GrpcService)
-        assertTrue(response.getDocId().startsWith("mock-doc-"));
+        assertEquals("test-doc", response.getDocId(),
+                "Inline handoff path echoes the client-provided docId unchanged.");
     }
 
     @Test
