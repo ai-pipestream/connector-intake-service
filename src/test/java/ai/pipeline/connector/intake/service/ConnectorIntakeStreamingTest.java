@@ -247,6 +247,25 @@ class ConnectorIntakeStreamingTest {
     }
 
     @Test
+    @DisplayName("engine returns ABORTED → ack retryable=true (transient handoff contention)")
+    void uploadPipeDocStream_engineAborted_setsRetryableTrue() {
+        when(engineClient.handoffToEngine(any(PipeDoc.class), anyString(), anyString(),
+                any(IngestionConfig.class), anyString()))
+                .thenReturn(Uni.createFrom().failure(
+                        Status.ABORTED.withDescription("queue eviction race").asRuntimeException()));
+
+        Multi<UploadPipeDocStreamRequest> requests = Multi.createFrom().items(
+                contextMessage(validContext()),
+                itemMessage("src-aborted"));
+
+        UploadPipeDocStreamResponse ack = runStream(requests).get(1);
+
+        assertFalse(ack.getSuccess());
+        assertTrue(ack.getRetryable(),
+                "ABORTED signals transient contention (queue eviction, txn rollback) — caller may retry at a higher level");
+    }
+
+    @Test
     @DisplayName("engine returns INVALID_ARGUMENT → ack retryable=false (validation won't fix itself)")
     void uploadPipeDocStream_engineInvalidArgument_setsRetryableFalse() {
         when(engineClient.handoffToEngine(any(PipeDoc.class), anyString(), anyString(),

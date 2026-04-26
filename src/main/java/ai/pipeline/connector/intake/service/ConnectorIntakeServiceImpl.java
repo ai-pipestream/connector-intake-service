@@ -846,16 +846,27 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
     /**
      * Translates an upstream gRPC failure into the {@code retryable}
      * flag the streaming client uses to decide between resend-with-backoff
-     * and surface-the-error. RESOURCE_EXHAUSTED (engine queue full) and
-     * UNAVAILABLE (transient transport / engine starting up) are
-     * retryable; everything else is treated as terminal.
+     * and surface-the-error. The retryable set covers transient
+     * conditions where retrying the same call has a real chance of
+     * succeeding without changing inputs:
+     * <ul>
+     *   <li>{@code RESOURCE_EXHAUSTED} — engine queue offer-timeout</li>
+     *   <li>{@code UNAVAILABLE} — transport hiccup or engine starting</li>
+     *   <li>{@code DEADLINE_EXCEEDED} — per-call budget exceeded</li>
+     *   <li>{@code ABORTED} — handoff aborted by transient contention
+     *       (concurrency conflict, transactional rollback). The gRPC
+     *       guidance is that ABORTED callers may retry at a higher level,
+     *       which fits how our engine reports queue-eviction races.</li>
+     * </ul>
+     * Everything else is treated as terminal.
      */
     private static boolean isRetryable(Throwable throwable) {
         if (throwable instanceof StatusRuntimeException sre) {
             Status.Code code = sre.getStatus().getCode();
             return code == Status.Code.RESOURCE_EXHAUSTED
                     || code == Status.Code.UNAVAILABLE
-                    || code == Status.Code.DEADLINE_EXCEEDED;
+                    || code == Status.Code.DEADLINE_EXCEEDED
+                    || code == Status.Code.ABORTED;
         }
         return false;
     }
