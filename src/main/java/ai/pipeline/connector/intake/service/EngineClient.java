@@ -10,10 +10,13 @@ import ai.pipestream.engine.v1.MutinyEngineV1ServiceGrpc;
 import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
 import ai.pipestream.server.constants.PipestreamServices;
 import com.google.protobuf.Timestamp;
+import io.grpc.Context;
 import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
+
+import java.util.function.Supplier;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -107,8 +110,9 @@ public class EngineClient {
             .setAccountId(accountId)
             .build();
 
-        return grpcClientFactory.getClient(ENGINE_SERVICE_NAME, MutinyEngineV1ServiceGrpc::newMutinyStub)
-            .flatMap(stub -> stub.intakeHandoff(request))
+        return underRootContext(() ->
+                grpcClientFactory.getClient(ENGINE_SERVICE_NAME, MutinyEngineV1ServiceGrpc::newMutinyStub)
+                        .flatMap(stub -> stub.intakeHandoff(request)))
             .invoke(response -> {
                 if (response.getAccepted()) {
                     LOG.debugf("Engine accepted document: doc_id=%s, stream_id=%s, entry_node=%s",
@@ -195,8 +199,9 @@ public class EngineClient {
             .setAccountId(accountId)
             .build();
 
-        return grpcClientFactory.getClient(ENGINE_SERVICE_NAME, MutinyEngineV1ServiceGrpc::newMutinyStub)
-            .flatMap(stub -> stub.intakeHandoff(request))
+        return underRootContext(() ->
+                grpcClientFactory.getClient(ENGINE_SERVICE_NAME, MutinyEngineV1ServiceGrpc::newMutinyStub)
+                        .flatMap(stub -> stub.intakeHandoff(request)))
             .invoke(response -> {
                 if (response.getAccepted()) {
                     LOG.debugf("Engine accepted document ref: doc_id=%s, stream_id=%s, entry_node=%s",
@@ -206,5 +211,33 @@ public class EngineClient {
                         docId, response.getMessage());
                 }
             });
+    }
+
+    /**
+     * Subscribes to {@code supplier}'s Uni under {@link Context#ROOT} so the
+     * outbound gRPC client call captures ROOT as its parent Context instead of
+     * the inbound RPC handler's Context.
+     * <p>
+     * Without this, every {@code uploadPipeDoc} that fans out to
+     * {@code engine.intakeHandoff} carries the inbound UploadPipeDoc handler's
+     * Context as the parent of the outbound call. As soon as the upstream
+     * Mutiny chain emits the response and the inbound handler's Context cancels
+     * — under load this happens with calls still in flight — every outbound
+     * call rooted at it dies with
+     * {@code CANCELLED: io.grpc.Context was cancelled without error}.
+     * Observed under JDBC transport-test crawls: 75 of 100 docs cancelled
+     * within a single 230 ms window once the engine channel finished
+     * resolving. ROOT never cancels, so the outbound call survives whatever
+     * the inbound handler's Context does next.
+     */
+    private static <T> Uni<T> underRootContext(Supplier<Uni<T>> supplier) {
+        return Uni.createFrom().<T>emitter(emitter -> {
+            Context previous = Context.ROOT.attach();
+            try {
+                supplier.get().subscribe().with(emitter::complete, emitter::fail);
+            } finally {
+                Context.ROOT.detach(previous);
+            }
+        });
     }
 }
