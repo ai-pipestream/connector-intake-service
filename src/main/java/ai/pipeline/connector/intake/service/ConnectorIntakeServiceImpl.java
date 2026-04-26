@@ -1,8 +1,13 @@
 package ai.pipeline.connector.intake.service;
 
+import ai.pipestream.connector.intake.v1.DocReference;
 import ai.pipestream.connector.intake.v1.MutinyConnectorIntakeServiceGrpc;
+import ai.pipestream.connector.intake.v1.PipeDocItem;
+import ai.pipestream.connector.intake.v1.StreamContext;
 import ai.pipestream.connector.intake.v1.UploadPipeDocRequest;
 import ai.pipestream.connector.intake.v1.UploadPipeDocResponse;
+import ai.pipestream.connector.intake.v1.UploadPipeDocStreamRequest;
+import ai.pipestream.connector.intake.v1.UploadPipeDocStreamResponse;
 import ai.pipestream.connector.intake.v1.UploadBlobRequest;
 import ai.pipestream.connector.intake.v1.UploadBlobResponse;
 import ai.pipestream.connector.intake.v1.StartCrawlSessionRequest;
@@ -24,7 +29,10 @@ import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
 import ai.pipeline.connector.intake.util.UriCanonicalizer;
 import ai.pipestream.repository.filesystem.upload.v1.MutinyNodeUploadServiceGrpc;
 import com.google.protobuf.Timestamp;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import io.quarkus.grpc.GrpcService;
+import io.smallrye.mutiny.Multi;
 import io.smallrye.mutiny.Uni;
 import jakarta.inject.Inject;
 import jakarta.inject.Singleton;
@@ -32,6 +40,7 @@ import org.jboss.logging.Logger;
 
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * gRPC service implementation handling connector ingestion endpoints.
@@ -672,5 +681,182 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                     .setSessionValid(false)
                     .build();
             });
+    }
+
+    // ================================================================
+    // Bidirectional streaming intake (UploadPipeDocStream)
+    // ================================================================
+    //
+    // High-throughput path for connectors that emit a sustained stream of
+    // documents (jdbc-connector cursor reads, s3-connector folder walks,
+    // etc.). The first message MUST be a {@link StreamContext} carrying
+    // the datasource_id + api_key + telemetry tags. All subsequent
+    // messages carry one document per {@link PipeDocItem}, and the
+    // server emits one {@link UploadPipeDocStreamResponse} per request
+    // (or one final terminal response if context is missing).
+    //
+    // Backpressure model: Mutiny's {@code transformToUniAndConcatenate}
+    // processes one item at a time and only requests the next from the
+    // upstream Multi when the current Uni completes. The upstream Multi
+    // is gRPC-bridged onto the inbound request stream, so HTTP/2
+    // flow-control naturally holds the client's onNext when we're slow.
+    // No manual {@code request(1)} bookkeeping needed.
+    //
+    // Retry model: when the engine returns RESOURCE_EXHAUSTED (its
+    // per-module queue stayed full past the offer-timeout) the response
+    // sets {@code retryable=true} so the client can resend the same
+    // PipeDocItem on the same stream after a short backoff. Validation
+    // failures and missing-pipeline drops set {@code retryable=false} —
+    // resending the same payload would just fail the same way.
+
+    @Override
+    public Multi<UploadPipeDocStreamResponse> uploadPipeDocStream(
+            Multi<UploadPipeDocStreamRequest> requests) {
+
+        // Stream-scoped state: captured once on the first message,
+        // referenced by every subsequent doc.
+        AtomicReference<StreamContext> contextRef = new AtomicReference<>();
+        AtomicReference<ConfigResolutionService.ResolvedConfig> configRef = new AtomicReference<>();
+
+        return requests.onItem().transformToUniAndConcatenate(req -> {
+            if (req.hasContext()) {
+                StreamContext ctx = req.getContext();
+                LOG.infof("uploadPipeDocStream: opening stream for datasource=%s, crawl=%s, sub=%d/%d, client=%s",
+                        ctx.getDatasourceId(), ctx.getCrawlId(),
+                        ctx.getSubCrawlIndex(), ctx.getTotalSubCrawls(), ctx.getClientId());
+                contextRef.set(ctx);
+                return configResolutionService.resolveConfig(ctx.getDatasourceId(), ctx.getApiKey())
+                        .map(resolved -> {
+                            configRef.set(resolved);
+                            return UploadPipeDocStreamResponse.newBuilder()
+                                    .setSuccess(true)
+                                    .setMessage("stream context accepted")
+                                    .build();
+                        })
+                        .onFailure().recoverWithItem(throwable -> {
+                            LOG.warnf(throwable, "uploadPipeDocStream: context resolution failed for datasource=%s",
+                                    ctx.getDatasourceId());
+                            return UploadPipeDocStreamResponse.newBuilder()
+                                    .setSuccess(false)
+                                    .setMessage("stream context rejected: " + throwable.getMessage())
+                                    .setRetryable(false)
+                                    .build();
+                        });
+            }
+            if (req.hasItem()) {
+                StreamContext ctx = contextRef.get();
+                ConfigResolutionService.ResolvedConfig resolved = configRef.get();
+                if (ctx == null || resolved == null) {
+                    return Uni.createFrom().item(UploadPipeDocStreamResponse.newBuilder()
+                            .setSuccess(false)
+                            .setMessage("first message must be StreamContext before any PipeDocItem")
+                            .setRetryable(false)
+                            .build());
+                }
+                return processStreamingItem(req.getItem(), ctx, resolved);
+            }
+            if (req.hasDeleteRef()) {
+                // Streaming delete is part of the proto but not implemented in v1.
+                // Acknowledge with a non-retryable failure so the client knows
+                // it has to fall back to the unary DeletePipeDoc RPC.
+                return Uni.createFrom().item(UploadPipeDocStreamResponse.newBuilder()
+                        .setSuccess(false)
+                        .setMessage("delete via stream not yet implemented; use DeletePipeDoc unary RPC")
+                        .setRetryable(false)
+                        .setRef(req.getDeleteRef())
+                        .build());
+            }
+            return Uni.createFrom().item(UploadPipeDocStreamResponse.newBuilder()
+                    .setSuccess(false)
+                    .setMessage("unrecognized stream payload — expected context, item, or delete_ref")
+                    .setRetryable(false)
+                    .build());
+        });
+    }
+
+    /**
+     * Processes one {@link PipeDocItem} from a streaming upload — derive
+     * doc_id, stamp ownership, persist (if configured), hand off to
+     * engine, build the {@link UploadPipeDocStreamResponse}. Mirrors the
+     * shape of {@link #uploadPipeDoc} but emits the streaming response
+     * type and propagates the retryable signal from the engine.
+     */
+    private Uni<UploadPipeDocStreamResponse> processStreamingItem(
+            PipeDocItem item,
+            StreamContext ctx,
+            ConfigResolutionService.ResolvedConfig resolved) {
+
+        PipeDoc originalPipeDoc = item.getPipeDoc();
+
+        DocIdDerivationResult derivation = deriveDocId(
+                ctx.getDatasourceId(),
+                originalPipeDoc.getDocId(),
+                item.getSourceDocId(),
+                originalPipeDoc.getSearchMetadata());
+
+        if (derivation == null) {
+            return Uni.createFrom().item(UploadPipeDocStreamResponse.newBuilder()
+                    .setSuccess(false)
+                    .setMessage("cannot determine doc_id deterministically")
+                    .setRetryable(false)
+                    .setRef(DocReference.newBuilder()
+                            .setSourceDocId(item.getSourceDocId())
+                            .build())
+                    .build());
+        }
+
+        PipeDoc.Builder pipeDocBuilder = originalPipeDoc.toBuilder()
+                .setDocId(derivation.docId)
+                .setDocIdDerivation(derivation.toProto());
+        if (!originalPipeDoc.hasOwnership()) {
+            pipeDocBuilder.setOwnership(OwnershipContext.newBuilder()
+                    .setAccountId(resolved.tier1Config().getAccountId())
+                    .setDatasourceId(resolved.tier1Config().getDatasourceId())
+                    .build());
+        }
+        PipeDoc pipeDoc = pipeDocBuilder.build();
+
+        long startTime = System.nanoTime();
+        String crawlId = ctx.getCrawlId();
+        Uni<UploadPipeDocResponse> handoff = resolved.shouldPersist()
+                ? persistAndHandoff(pipeDoc, resolved, startTime, crawlId)
+                : handoffInline(pipeDoc, resolved, startTime, crawlId);
+
+        return handoff
+                .map(unaryResp -> UploadPipeDocStreamResponse.newBuilder()
+                        .setSuccess(unaryResp.getSuccess())
+                        .setMessage(unaryResp.getMessage())
+                        .setRetryable(false) // unary success/failure both end here non-retryable
+                        .setRef(DocReference.newBuilder()
+                                .setSourceDocId(item.getSourceDocId())
+                                .setDocId(unaryResp.getDocId())
+                                .build())
+                        .build())
+                .onFailure().recoverWithItem(throwable -> UploadPipeDocStreamResponse.newBuilder()
+                        .setSuccess(false)
+                        .setMessage(throwable.getMessage())
+                        .setRetryable(isRetryable(throwable))
+                        .setRef(DocReference.newBuilder()
+                                .setSourceDocId(item.getSourceDocId())
+                                .setDocId(pipeDoc.getDocId())
+                                .build())
+                        .build());
+    }
+
+    /**
+     * Translates an upstream gRPC failure into the {@code retryable}
+     * flag the streaming client uses to decide between resend-with-backoff
+     * and surface-the-error. RESOURCE_EXHAUSTED (engine queue full) and
+     * UNAVAILABLE (transient transport / engine starting up) are
+     * retryable; everything else is treated as terminal.
+     */
+    private static boolean isRetryable(Throwable throwable) {
+        if (throwable instanceof StatusRuntimeException sre) {
+            Status.Code code = sre.getStatus().getCode();
+            return code == Status.Code.RESOURCE_EXHAUSTED
+                    || code == Status.Code.UNAVAILABLE
+                    || code == Status.Code.DEADLINE_EXCEEDED;
+        }
+        return false;
     }
 }
