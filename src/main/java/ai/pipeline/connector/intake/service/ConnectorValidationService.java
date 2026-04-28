@@ -1,17 +1,24 @@
 package ai.pipeline.connector.intake.service;
 
 import ai.pipestream.connector.intake.v1.DataSourceConfig;
+import ai.pipestream.connector.intake.v1.DataSourceAdminServiceGrpc;
+import ai.pipestream.connector.intake.v1.ValidateApiKeyRequest;
+import ai.pipestream.connector.intake.v1.ValidateApiKeyResponse;
+import ai.pipestream.repository.account.v1.AccountServiceGrpc;
+import ai.pipestream.repository.account.v1.GetAccountResponse;
+import io.grpc.Channel;
 import io.grpc.Status;
-import ai.pipestream.connector.intake.v1.DataSource;
-import ai.pipestream.connector.intake.v1.MutinyDataSourceAdminServiceGrpc;
-import ai.pipestream.quarkus.dynamicgrpc.DynamicGrpcClientFactory;
+import io.grpc.StatusRuntimeException;
+import io.grpc.stub.StreamObserver;
+import io.quarkus.grpc.GrpcClient;
 import ai.pipestream.repository.account.v1.GetAccountRequest;
-import ai.pipestream.repository.account.v1.MutinyAccountServiceGrpc;
 import io.quarkus.cache.CacheResult;
 import io.smallrye.mutiny.Uni;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
+
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Service for validating connector API keys and fetching connector configuration.
@@ -19,22 +26,32 @@ import org.jboss.logging.Logger;
  * This service provides the boundary between connector-intake-service and connector-service,
  * ensuring proper microservice architecture without database coupling.
  * <p>
- * Uses dynamic-grpc with Stork service discovery to locate connector-service.
+ * Uses stock Quarkus gRPC clients with Stork service discovery to locate
+ * connector-admin and account-manager.
  */
 @ApplicationScoped
 public class ConnectorValidationService {
 
     private static final Logger LOG = Logger.getLogger(ConnectorValidationService.class);
-    private static final String DATASOURCE_SERVICE_NAME = "connector-admin";
-    private static final String ACCOUNT_SERVICE_NAME = "account-manager";
-
     /**
      * Default constructor for CDI.
      */
     public ConnectorValidationService() { }
 
-    @Inject
-    DynamicGrpcClientFactory grpcClientFactory;
+    @GrpcClient("connector-admin")
+    Channel connectorAdminChannel;
+
+    @GrpcClient("account-manager")
+    Channel accountChannel;
+
+    private DataSourceAdminServiceGrpc.DataSourceAdminServiceStub dataSourceAdminStub;
+    private AccountServiceGrpc.AccountServiceStub accountStub;
+
+    @PostConstruct
+    void init() {
+        this.dataSourceAdminStub = DataSourceAdminServiceGrpc.newStub(connectorAdminChannel);
+        this.accountStub = AccountServiceGrpc.newStub(accountChannel);
+    }
 
     /**
      * Validate a datasource's API key and fetch its configuration.
@@ -60,13 +77,7 @@ public class ConnectorValidationService {
     public Uni<DataSourceConfig> validateDataSource(String datasourceId, String apiKey) {
         LOG.debugf("Validating datasource: %s", datasourceId);
 
-        return grpcClientFactory.getClient(DATASOURCE_SERVICE_NAME, MutinyDataSourceAdminServiceGrpc::newMutinyStub)
-            .flatMap(stub -> stub.validateApiKey(
-                ai.pipestream.connector.intake.v1.ValidateApiKeyRequest.newBuilder()
-                    .setDatasourceId(datasourceId)
-                    .setApiKey(apiKey)
-                    .build()
-            ))
+        return validateApiKey(datasourceId, apiKey)
             .flatMap(response -> {
                 if (!response.getValid()) {
                     LOG.warnf("API key validation failed for datasource %s: %s", datasourceId, response.getMessage());
@@ -78,27 +89,24 @@ public class ConnectorValidationService {
                 }
 
                 DataSourceConfig config = response.getConfig();
-                LOG.debugf("Datasource %s validated successfully", datasourceId);
+                String accountId = config.getAccountId();
+                LOG.debugf("Datasource %s API key validated successfully; account=%s", datasourceId, accountId);
 
                 // Validate account is active
-                return validateAccountActive(config.getAccountId())
+                return validateAccountActive(accountId, datasourceId)
                     .replaceWith(config);
-            })
-            .onFailure(io.grpc.StatusRuntimeException.class)
-            .transform(throwable -> {
-                io.grpc.StatusRuntimeException sre = (io.grpc.StatusRuntimeException) throwable;
-                logGrpcFailure("validate datasource " + datasourceId, sre);
-                return sre;
             });
     }
 
     /**
      * Validate that an account exists and is active.
      */
-    private Uni<Void> validateAccountActive(String accountId) {
+    private Uni<Void> validateAccountActive(String accountId, String datasourceId) {
         return isAccountActive(accountId)
             .flatMap(active -> {
                 if (!active) {
+                    LOG.warnf("Account validation failed for datasource %s: account %s is inactive or missing",
+                            datasourceId, accountId);
                     return Uni.createFrom().failure(
                         Status.PERMISSION_DENIED
                             .withDescription("Account is inactive or does not exist: " + accountId)
@@ -117,30 +125,107 @@ public class ConnectorValidationService {
     Uni<Boolean> isAccountActive(String accountId) {
         LOG.debugf("Account cache miss, looking up: %s", accountId);
 
-        return grpcClientFactory.getClient(ACCOUNT_SERVICE_NAME, MutinyAccountServiceGrpc::newMutinyStub)
-            .flatMap(stub -> stub.getAccount(
-                GetAccountRequest.newBuilder()
-                    .setAccountId(accountId)
-                    .build()
-            ))
+        return getAccount(accountId)
             .map(response -> {
                 boolean active = response.getAccount().getActive();
                 LOG.debugf("Account %s lookup result: active=%s", accountId, active);
                 return active;
             })
-            .onFailure(io.grpc.StatusRuntimeException.class)
-            .recoverWithItem(throwable -> {
-                io.grpc.StatusRuntimeException sre = (io.grpc.StatusRuntimeException) throwable;
+            .onFailure(StatusRuntimeException.class)
+            .recoverWithUni(throwable -> {
+                StatusRuntimeException sre = (StatusRuntimeException) throwable;
                 if (sre.getStatus().getCode() == io.grpc.Status.Code.NOT_FOUND) {
                     LOG.warnf("Account not found: %s", accountId);
+                    return Uni.createFrom().item(false);
                 } else {
                     logGrpcFailure("validate account " + accountId, sre);
+                    return Uni.createFrom().failure(sre);
                 }
-                return false;
             });
     }
 
-    private void logGrpcFailure(String context, io.grpc.StatusRuntimeException sre) {
+    private Uni<ValidateApiKeyResponse> validateApiKey(String datasourceId, String apiKey) {
+        ValidateApiKeyRequest request = ValidateApiKeyRequest.newBuilder()
+                .setDatasourceId(datasourceId)
+                .setApiKey(apiKey)
+                .build();
+        CompletableFuture<ValidateApiKeyResponse> future = new CompletableFuture<>();
+        dataSourceAdminStub.validateApiKey(request, new StreamObserver<>() {
+            @Override
+            public void onNext(ValidateApiKeyResponse value) {
+                future.complete(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                future.completeExceptionally(t);
+            }
+
+            @Override
+            public void onCompleted() {
+                // unary response already completed in onNext
+            }
+        });
+        return Uni.createFrom().completionStage(future)
+                .onFailure().transform(throwable ->
+                        phaseFailure("connector-admin ValidateApiKey", datasourceId, null, throwable));
+    }
+
+    private Uni<GetAccountResponse> getAccount(String accountId) {
+        GetAccountRequest request = GetAccountRequest.newBuilder()
+                .setAccountId(accountId)
+                .build();
+        CompletableFuture<GetAccountResponse> future = new CompletableFuture<>();
+        accountStub.getAccount(request, new StreamObserver<>() {
+            @Override
+            public void onNext(GetAccountResponse value) {
+                future.complete(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                future.completeExceptionally(t);
+            }
+
+            @Override
+            public void onCompleted() {
+                // unary response already completed in onNext
+            }
+        });
+        return Uni.createFrom().completionStage(future)
+                .onFailure().transform(throwable ->
+                        phaseFailure("account-manager GetAccount", null, accountId, throwable));
+    }
+
+    private Throwable phaseFailure(String phase, String datasourceId, String accountId, Throwable throwable) {
+        StatusRuntimeException sre = toStatusRuntimeException(throwable);
+        Status status = sre.getStatus();
+        String subject = datasourceId != null
+                ? "datasource " + datasourceId
+                : "account " + accountId;
+        String description = status.getDescription();
+        String phaseDescription = phase + " failed for " + subject
+                + (description == null || description.isBlank() ? "" : ": " + description);
+
+        StatusRuntimeException phased = status
+                .withDescription(phaseDescription)
+                .withCause(throwable)
+                .asRuntimeException();
+        logGrpcFailure(phaseDescription, phased);
+        return phased;
+    }
+
+    private StatusRuntimeException toStatusRuntimeException(Throwable throwable) {
+        if (throwable instanceof StatusRuntimeException sre) {
+            return sre;
+        }
+        return Status.UNKNOWN
+                .withDescription(throwable.getMessage())
+                .withCause(throwable)
+                .asRuntimeException();
+    }
+
+    private void logGrpcFailure(String context, StatusRuntimeException sre) {
         // Avoid noisy stack traces for expected auth/permission failures
         var code = sre.getStatus().getCode();
         if (code == io.grpc.Status.Code.UNAUTHENTICATED
