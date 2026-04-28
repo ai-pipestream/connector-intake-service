@@ -61,6 +61,9 @@ dependencies {
     implementation libs.quarkus.rest.jackson
     implementation libs.quarkus.rest.client
     implementation 'io.quarkus:quarkus-cache'
+    // Redis-backed intake job queue: durable hand-off buffer between the
+    // streaming intake bidi handler and the engine-handoff worker pool.
+    implementation 'io.quarkus:quarkus-redis-client'
 
     // Service discovery and registration (matches connector-service baseline)
     implementation 'io.quarkus:quarkus-smallrye-stork'
@@ -90,8 +93,9 @@ dependencies {
     // Mockito is allowed for isolated benchmark-style tests (no wiremock libs; wiremock is a Docker gRPC server)
     testImplementation 'io.quarkus:quarkus-junit5-mockito'
     testImplementation 'io.rest-assured:rest-assured'
+    testImplementation 'org.assertj:assertj-core:3.27.7'
     testImplementation("ai.pipestream:pipestream-test-support:${pipestreamBomVersion}")
-    testImplementation platform('org.testcontainers:testcontainers-bom:2.0.4')
+    testImplementation platform('org.testcontainers:testcontainers-bom:2.0.5')
     testImplementation 'org.testcontainers:testcontainers'
     testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
     testImplementation 'ai.pipestream:test-documents'
