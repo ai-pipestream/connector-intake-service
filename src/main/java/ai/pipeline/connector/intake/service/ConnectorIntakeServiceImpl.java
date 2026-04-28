@@ -70,9 +70,6 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
     EngineClient engineClient;
 
     @Inject
-    ai.pipeline.connector.intake.queue.IntakeJobQueue intakeJobQueue;
-
-    @Inject
     SessionManager sessionManager;
 
     @Inject
@@ -821,12 +818,10 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
 
         long startTime = System.nanoTime();
         String crawlId = ctx.getCrawlId();
+        Uni<UploadPipeDocResponse> handoff = resolved.shouldPersist()
+                ? persistAndHandoff(pipeDoc, resolved, startTime, crawlId)
+                : handoffInline(pipeDoc, resolved, startTime, crawlId);
 
-        if (!resolved.shouldPersist()) {
-            return acceptNonDurableStreamingItem(item, pipeDoc, resolved, startTime, crawlId);
-        }
-
-        Uni<UploadPipeDocResponse> handoff = persistAndHandoff(pipeDoc, resolved, startTime, crawlId);
         return handoff
                 .map(unaryResp -> UploadPipeDocStreamResponse.newBuilder()
                         .setSuccess(unaryResp.getSuccess())
@@ -846,54 +841,6 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
                                 .setDocId(pipeDoc.getDocId())
                                 .build())
                         .build());
-    }
-
-    private Uni<UploadPipeDocStreamResponse> acceptNonDurableStreamingItem(
-            PipeDocItem item,
-            PipeDoc pipeDoc,
-            ConfigResolutionService.ResolvedConfig resolved,
-            long startTime,
-            String crawlId) {
-
-        IngestionConfig ingestionConfig = resolved.withIngressMode(IngressMode.INGRESS_MODE_GRPC_INLINE);
-
-        // Build the engine handoff request once, here. The same request
-        // (with a stable stream_id) is what the queue worker will hand to
-        // the engine on every retry — a precondition for engine-side
-        // idempotency by stream_id.
-        ai.pipestream.engine.v1.IntakeHandoffRequest request = engineClient.buildHandoffRequest(
-                pipeDoc,
-                resolved.tier1Config().getDatasourceId(),
-                resolved.tier1Config().getAccountId(),
-                ingestionConfig,
-                crawlId);
-
-        // Push to the Redis-backed job queue. LPUSH is sub-millisecond on
-        // a healthy Redis; the bidi stream's HTTP/2 flow control supplies
-        // the only backpressure path needed (Redis itself is the durable
-        // buffer — no separate in-process queue with a submit timeout).
-        //
-        // Redis failures are NOT caught here. If Redis is unreachable
-        // intake cannot keep its ownership contract, and quietly translating
-        // that into per-doc retryable=true would bury a real environment
-        // failure. The exception propagates up the Mutiny chain → the
-        // bidi stream errors out → the connector sees a transport-level
-        // failure and surfaces it. That's the right blast radius.
-        return Uni.createFrom().item(() -> {
-            intakeJobQueue.submit(request);
-            long acceptMs = (System.nanoTime() - startTime) / 1_000_000L;
-            LOG.debugf("uploadPipeDocStream: accepted non-durable doc_id=%s stream_id=%s in %d ms",
-                    pipeDoc.getDocId(), request.getStream().getStreamId(), acceptMs);
-            return UploadPipeDocStreamResponse.newBuilder()
-                    .setSuccess(true)
-                    .setMessage("Document accepted by intake (non-durable); engine handoff queued")
-                    .setRetryable(false)
-                    .setRef(DocReference.newBuilder()
-                            .setSourceDocId(item.getSourceDocId())
-                            .setDocId(pipeDoc.getDocId())
-                            .build())
-                    .build();
-        }).runSubscriptionOn(io.smallrye.mutiny.infrastructure.Infrastructure.getDefaultWorkerPool());
     }
 
     /**

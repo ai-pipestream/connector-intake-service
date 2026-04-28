@@ -82,19 +82,7 @@ public class EngineClient {
 
         IntakeHandoffRequest request = buildRequestForDoc(pipeDoc, datasourceId, accountId,
                 ingestionConfig, crawlId);
-        return handoffToEngine(request);
-    }
 
-    /**
-     * Hand off a pre-built {@link IntakeHandoffRequest}. Used by the
-     * Redis-backed intake job queue, where the request is built once on
-     * submit and reused across retries so the engine sees the same
-     * {@code stream_id} every attempt — a precondition for any future
-     * engine-side idempotency.
-     */
-    public Uni<IntakeHandoffResponse> handoffToEngine(IntakeHandoffRequest request) {
-        PipeDoc pipeDoc = request.getStream().hasDocument()
-                ? request.getStream().getDocument() : PipeDoc.getDefaultInstance();
         return Uni.createFrom().completionStage(() -> callIntakeHandoff(request))
                 .invoke(response -> {
                     if (response.getAccepted()) {
@@ -196,28 +184,6 @@ public class EngineClient {
                         err -> future.completeExceptionally(err)
                 );
         return future;
-    }
-
-    /**
-     * Build an {@link IntakeHandoffRequest} from the per-doc pieces. Used
-     * by the Redis-backed intake job queue: the bidi-stream handler
-     * builds the request once on submit (so {@code stream_id} is fixed
-     * for the lifetime of the queued item) and the queue worker hands
-     * the same request to engine on every retry.
-     *
-     * @param pipeDoc         the document to enqueue
-     * @param datasourceId    Tier-1 datasource id
-     * @param accountId       owning account id
-     * @param ingestionConfig resolved ingestion config (carries ingress
-     *                        mode, persistence flags, etc.)
-     * @param crawlId         optional crawl correlation id
-     * @return a fully-populated handoff request ready for queueing or
-     *         direct {@link #handoffToEngine(IntakeHandoffRequest)}
-     */
-    public IntakeHandoffRequest buildHandoffRequest(PipeDoc pipeDoc, String datasourceId,
-                                                    String accountId, IngestionConfig ingestionConfig,
-                                                    String crawlId) {
-        return buildRequestForDoc(pipeDoc, datasourceId, accountId, ingestionConfig, crawlId);
     }
 
     private IntakeHandoffRequest buildRequestForDoc(PipeDoc pipeDoc, String datasourceId,
