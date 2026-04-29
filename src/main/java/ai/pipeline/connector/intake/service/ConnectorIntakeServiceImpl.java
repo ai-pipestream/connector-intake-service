@@ -857,16 +857,32 @@ public class ConnectorIntakeServiceImpl extends MutinyConnectorIntakeServiceGrpc
      *       (concurrency conflict, transactional rollback). The gRPC
      *       guidance is that ABORTED callers may retry at a higher level,
      *       which fits how our engine reports queue-eviction races.</li>
+     *   <li>{@code INTERNAL "Half-closed without a request"} — gRPC stream
+     *       race where the server's HALFCLOSE frame is observed before
+     *       (or instead of) the MESSAGE frame, so the request never
+     *       reaches the application handler. Documented in
+     *       {@code LargePayloadConcurrencyTest}'s javadoc as a transient
+     *       silent-drop signature; a fresh stream from a clean retry
+     *       reliably succeeds. Without this entry the JDBC connector
+     *       aborts the entire crawl on what is effectively a dropped
+     *       single-doc frame. Root cause investigation in dynamic-grpc
+     *       transport is tracked separately.</li>
      * </ul>
      * Everything else is treated as terminal.
      */
     private static boolean isRetryable(Throwable throwable) {
         if (throwable instanceof StatusRuntimeException sre) {
             Status.Code code = sre.getStatus().getCode();
-            return code == Status.Code.RESOURCE_EXHAUSTED
+            if (code == Status.Code.RESOURCE_EXHAUSTED
                     || code == Status.Code.UNAVAILABLE
                     || code == Status.Code.DEADLINE_EXCEEDED
-                    || code == Status.Code.ABORTED;
+                    || code == Status.Code.ABORTED) {
+                return true;
+            }
+            if (code == Status.Code.INTERNAL) {
+                String desc = sre.getStatus().getDescription();
+                return desc != null && desc.contains("Half-closed without a request");
+            }
         }
         return false;
     }
