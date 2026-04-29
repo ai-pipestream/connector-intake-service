@@ -122,10 +122,16 @@ public class PipeDocAcceptanceService {
     private static boolean isRetryable(Throwable throwable) {
         if (throwable instanceof StatusRuntimeException sre) {
             Status.Code code = sre.getStatus().getCode();
-            return code == Status.Code.RESOURCE_EXHAUSTED
+            if (code == Status.Code.RESOURCE_EXHAUSTED
                     || code == Status.Code.UNAVAILABLE
                     || code == Status.Code.DEADLINE_EXCEEDED
-                    || code == Status.Code.ABORTED;
+                    || code == Status.Code.ABORTED) {
+                return true;
+            }
+            if (code == Status.Code.INTERNAL) {
+                String description = sre.getStatus().getDescription();
+                return description != null && description.contains("Half-closed without a request");
+            }
         }
         return false;
     }
