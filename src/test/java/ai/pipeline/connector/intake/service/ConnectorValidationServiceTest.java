@@ -31,7 +31,7 @@ class ConnectorValidationServiceTest {
     @BeforeEach
     void setUp() throws ExecutionException, InterruptedException {
         // Clear cache before each test
-        cacheManager.getCache("datasource-config").orElseThrow().invalidateAll().await().indefinitely();
+        cacheManager.getCache("datasource-config").orElseThrow().invalidateAll();
     }
 
     @Test
@@ -41,12 +41,12 @@ class ConnectorValidationServiceTest {
         String apiKey = "valid-api-key";
 
         // Act & Assert - First call (cache miss)
-        var config1 = connectorValidationService.validateDataSource(datasourceId, apiKey).await().indefinitely();
+        var config1 = connectorValidationService.validateDataSource(datasourceId, apiKey);
         assertNotNull(config1);
         assertEquals("valid-account", config1.getAccountId());
 
         // Act & Assert - Second call (cache hit - mocks won't be called again)
-        var config2 = connectorValidationService.validateDataSource(datasourceId, apiKey).await().indefinitely();
+        var config2 = connectorValidationService.validateDataSource(datasourceId, apiKey);
         assertNotNull(config2);
         assertEquals("valid-account", config2.getAccountId());
     }
@@ -59,7 +59,7 @@ class ConnectorValidationServiceTest {
 
         // Act & Assert
         io.grpc.StatusRuntimeException ex = assertThrows(io.grpc.StatusRuntimeException.class, () ->
-            connectorValidationService.validateDataSource(datasourceId, apiKey).await().indefinitely()
+            connectorValidationService.validateDataSource(datasourceId, apiKey)
         );
         assertEquals(io.grpc.Status.Code.UNAUTHENTICATED, ex.getStatus().getCode());
     }
@@ -72,7 +72,7 @@ class ConnectorValidationServiceTest {
 
         // Act & Assert
         io.grpc.StatusRuntimeException ex = assertThrows(io.grpc.StatusRuntimeException.class, () ->
-            connectorValidationService.validateDataSource(datasourceId, apiKey).await().indefinitely()
+            connectorValidationService.validateDataSource(datasourceId, apiKey)
         );
         assertEquals(io.grpc.Status.Code.PERMISSION_DENIED, ex.getStatus().getCode());
     }
@@ -85,7 +85,7 @@ class ConnectorValidationServiceTest {
 
         // Act & Assert
         io.grpc.StatusRuntimeException ex = assertThrows(io.grpc.StatusRuntimeException.class, () ->
-            connectorValidationService.validateDataSource(datasourceId, apiKey).await().indefinitely()
+            connectorValidationService.validateDataSource(datasourceId, apiKey)
         );
         assertEquals(io.grpc.Status.Code.PERMISSION_DENIED, ex.getStatus().getCode());
     }

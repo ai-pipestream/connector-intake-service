@@ -104,7 +104,7 @@ public class ApiKeyUtil {
             boolean matches = Password.check(plaintextApiKey, storedHash).with(ARGON2);
             LOG.debugf("API key verification: %s", matches ? "SUCCESS" : "FAILED");
             return matches;
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             LOG.warnf(e, "API key verification failed with exception");
             return false;
         }

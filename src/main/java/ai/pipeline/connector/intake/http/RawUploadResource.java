@@ -17,6 +17,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.HashMap;
 import java.util.Map;
@@ -83,7 +84,7 @@ public class RawUploadResource {
                 "Cannot determine doc_id. Provide x-doc-id, x-source-doc-id, x-source-uri, or x-source-path"));
         }
 
-        return configResolutionService.resolveConfig(datasourceId, apiKey)
+        return Uni.createFrom().item(() -> configResolutionService.resolveConfig(datasourceId, apiKey))
             .flatMap(resolved -> {
                 String accountId = resolved.tier1Config().getAccountId();
                 String connectorId = resolved.tier1Config().getConnectorId();
@@ -227,7 +228,7 @@ public class RawUploadResource {
     private void closeQuietly(InputStream body) {
         try {
             body.close();
-        } catch (Exception ignored) {
+        } catch (IOException ignored) {
         }
     }
 }

@@ -31,7 +31,7 @@ class ConfigResolutionServiceTest {
 
         // Act
         ConfigResolutionService.ResolvedConfig resolved = 
-            configResolutionService.resolveConfig(datasourceId, apiKey).await().indefinitely();
+            configResolutionService.resolveConfig(datasourceId, apiKey);
 
         // Assert
         assertNotNull(resolved);
@@ -52,7 +52,7 @@ class ConfigResolutionServiceTest {
 
         // Act & Assert
         io.grpc.StatusRuntimeException ex = assertThrows(io.grpc.StatusRuntimeException.class,
-            () -> configResolutionService.resolveConfig(datasourceId, apiKey).await().indefinitely());
+            () -> configResolutionService.resolveConfig(datasourceId, apiKey));
         assertEquals(Status.Code.UNAUTHENTICATED, ex.getStatus().getCode());
     }
 
@@ -64,7 +64,7 @@ class ConfigResolutionServiceTest {
 
         // Act & Assert
         io.grpc.StatusRuntimeException ex = assertThrows(io.grpc.StatusRuntimeException.class,
-            () -> configResolutionService.resolveConfig(datasourceId, apiKey).await().indefinitely());
+            () -> configResolutionService.resolveConfig(datasourceId, apiKey));
         assertEquals(Status.Code.UNAUTHENTICATED, ex.getStatus().getCode());
     }
 
@@ -76,7 +76,7 @@ class ConfigResolutionServiceTest {
 
         // Act & Assert
         io.grpc.StatusRuntimeException ex = assertThrows(io.grpc.StatusRuntimeException.class,
-            () -> configResolutionService.resolveConfig(datasourceId, apiKey).await().indefinitely());
+            () -> configResolutionService.resolveConfig(datasourceId, apiKey));
         assertEquals(Status.Code.PERMISSION_DENIED, ex.getStatus().getCode());
     }
 
@@ -88,7 +88,7 @@ class ConfigResolutionServiceTest {
 
         // Act & Assert
         io.grpc.StatusRuntimeException ex = assertThrows(io.grpc.StatusRuntimeException.class,
-            () -> configResolutionService.resolveConfig(datasourceId, apiKey).await().indefinitely());
+            () -> configResolutionService.resolveConfig(datasourceId, apiKey));
         assertEquals(Status.Code.PERMISSION_DENIED, ex.getStatus().getCode());
     }
 
@@ -105,7 +105,7 @@ class ConfigResolutionServiceTest {
 
         // Act
         ConfigResolutionService.ResolvedConfig resolved =
-            configResolutionService.resolveConfig(datasourceId, apiKey).await().indefinitely();
+            configResolutionService.resolveConfig(datasourceId, apiKey);
 
         // Assert
         assertFalse(resolved.shouldPersist(),
@@ -120,7 +120,7 @@ class ConfigResolutionServiceTest {
 
         // Act
         ConfigResolutionService.ResolvedConfig resolved = 
-            configResolutionService.resolveConfig(datasourceId, apiKey).await().indefinitely();
+            configResolutionService.resolveConfig(datasourceId, apiKey);
 
         // Assert
         assertNotNull(resolved.ingestionConfig());
@@ -134,7 +134,7 @@ class ConfigResolutionServiceTest {
         String apiKey = "valid-api-key";
 
         ConfigResolutionService.ResolvedConfig resolved = 
-            configResolutionService.resolveConfig(datasourceId, apiKey).await().indefinitely();
+            configResolutionService.resolveConfig(datasourceId, apiKey);
 
         // Act
         IngestionConfig withMode = resolved.withIngressMode(IngressMode.INGRESS_MODE_GRPC_INLINE);
@@ -155,7 +155,7 @@ class ConfigResolutionServiceTest {
 
         // Act
         ConfigResolutionService.ResolvedConfig resolved =
-            configResolutionService.resolveConfig(datasourceId, apiKey).await().indefinitely();
+            configResolutionService.resolveConfig(datasourceId, apiKey);
 
         // Assert
         assertFalse(resolved.ingestionConfig().getRightToBeForgotten().getDeleteSearchIndex());

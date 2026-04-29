@@ -13,12 +13,12 @@ import io.grpc.stub.StreamObserver;
 import io.quarkus.grpc.GrpcClient;
 import ai.pipestream.repository.account.v1.GetAccountRequest;
 import io.quarkus.cache.CacheResult;
-import io.smallrye.mutiny.Uni;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import org.jboss.logging.Logger;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 
 /**
  * Service for validating connector API keys and fetching connector configuration.
@@ -61,60 +61,38 @@ public class ConnectorValidationService {
      *   <li>Discovers and calls datasource-admin to validate the API key and retrieve datasource config.</li>
      *   <li>Then verifies the owning account exists and is active via account-service.</li>
      * </ul>
-     * Reactive semantics:
-     * <ul>
-     *   <li>Returns a {@code Uni<DataSourceConfig>} that emits on completion of two remote gRPC calls.</li>
-     *   <li>Authentication failures are mapped to {@code io.grpc.StatusRuntimeException} with {@code UNAUTHENTICATED}.</li>
-     *   <li>Missing or inactive accounts are mapped to {@code PERMISSION_DENIED}.</li>
-     * </ul>
+     * Uses standard async gRPC stubs and StreamObserver callbacks.
      * Side effects: network calls to datasource-admin and account-service.
      *
      * @param datasourceId The datasource ID
      * @param apiKey The plaintext API key to validate
-     * @return a {@code Uni} emitting {@code DataSourceConfig} when validation succeeds
+     * @return the datasource config when validation succeeds
      */
     @CacheResult(cacheName = "datasource-config")
-    public Uni<DataSourceConfig> validateDataSource(String datasourceId, String apiKey) {
+    public DataSourceConfig validateDataSource(String datasourceId, String apiKey) {
         LOG.debugf("Validating datasource: %s", datasourceId);
 
-        return validateApiKey(datasourceId, apiKey)
-            .flatMap(response -> {
-                if (!response.getValid()) {
-                    LOG.warnf("API key validation failed for datasource %s: %s", datasourceId, response.getMessage());
-                    return Uni.createFrom().failure(
-                        Status.UNAUTHENTICATED
-                            .withDescription(response.getMessage())
-                            .asRuntimeException()
-                    );
-                }
+        ValidateApiKeyResponse response = validateApiKey(datasourceId, apiKey);
+        if (!response.getValid()) {
+            LOG.warnf("API key validation failed for datasource %s: %s", datasourceId, response.getMessage());
+            throw Status.UNAUTHENTICATED
+                    .withDescription(response.getMessage())
+                    .asRuntimeException();
+        }
 
-                DataSourceConfig config = response.getConfig();
-                String accountId = config.getAccountId();
-                LOG.debugf("Datasource %s API key validated successfully; account=%s", datasourceId, accountId);
+        DataSourceConfig config = response.getConfig();
+        String accountId = config.getAccountId();
+        LOG.debugf("Datasource %s API key validated successfully; account=%s", datasourceId, accountId);
 
-                // Validate account is active
-                return validateAccountActive(accountId, datasourceId)
-                    .replaceWith(config);
-            });
-    }
+        if (!isAccountActive(accountId)) {
+            LOG.warnf("Account validation failed for datasource %s: account %s is inactive or missing",
+                    datasourceId, accountId);
+            throw Status.PERMISSION_DENIED
+                    .withDescription("Account is inactive or does not exist: " + accountId)
+                    .asRuntimeException();
+        }
 
-    /**
-     * Validate that an account exists and is active.
-     */
-    private Uni<Void> validateAccountActive(String accountId, String datasourceId) {
-        return isAccountActive(accountId)
-            .flatMap(active -> {
-                if (!active) {
-                    LOG.warnf("Account validation failed for datasource %s: account %s is inactive or missing",
-                            datasourceId, accountId);
-                    return Uni.createFrom().failure(
-                        Status.PERMISSION_DENIED
-                            .withDescription("Account is inactive or does not exist: " + accountId)
-                            .asRuntimeException()
-                    );
-                }
-                return Uni.createFrom().voidItem();
-            });
+        return config;
     }
 
     /**
@@ -122,29 +100,23 @@ public class ConnectorValidationService {
      * caches the result to avoid repeated lookups for the same account.
      */
     @CacheResult(cacheName = "account-active")
-    Uni<Boolean> isAccountActive(String accountId) {
+    boolean isAccountActive(String accountId) {
         LOG.debugf("Account cache miss, looking up: %s", accountId);
-
-        return getAccount(accountId)
-            .map(response -> {
-                boolean active = response.getAccount().getActive();
-                LOG.debugf("Account %s lookup result: active=%s", accountId, active);
-                return active;
-            })
-            .onFailure(StatusRuntimeException.class)
-            .recoverWithUni(throwable -> {
-                StatusRuntimeException sre = (StatusRuntimeException) throwable;
-                if (sre.getStatus().getCode() == io.grpc.Status.Code.NOT_FOUND) {
-                    LOG.warnf("Account not found: %s", accountId);
-                    return Uni.createFrom().item(false);
-                } else {
-                    logGrpcFailure("validate account " + accountId, sre);
-                    return Uni.createFrom().failure(sre);
-                }
-            });
+        try {
+            boolean active = getAccount(accountId).getAccount().getActive();
+            LOG.debugf("Account %s lookup result: active=%s", accountId, active);
+            return active;
+        } catch (StatusRuntimeException sre) {
+            if (sre.getStatus().getCode() == io.grpc.Status.Code.NOT_FOUND) {
+                LOG.warnf("Account not found: %s", accountId);
+                return false;
+            }
+            logGrpcFailure("validate account " + accountId, sre);
+            throw sre;
+        }
     }
 
-    private Uni<ValidateApiKeyResponse> validateApiKey(String datasourceId, String apiKey) {
+    private ValidateApiKeyResponse validateApiKey(String datasourceId, String apiKey) {
         ValidateApiKeyRequest request = ValidateApiKeyRequest.newBuilder()
                 .setDatasourceId(datasourceId)
                 .setApiKey(apiKey)
@@ -166,12 +138,10 @@ public class ConnectorValidationService {
                 // unary response already completed in onNext
             }
         });
-        return Uni.createFrom().completionStage(future)
-                .onFailure().transform(throwable ->
-                        phaseFailure("connector-admin ValidateApiKey", datasourceId, null, throwable));
+        return awaitUnary(future, "connector-admin ValidateApiKey", datasourceId, null);
     }
 
-    private Uni<GetAccountResponse> getAccount(String accountId) {
+    private GetAccountResponse getAccount(String accountId) {
         GetAccountRequest request = GetAccountRequest.newBuilder()
                 .setAccountId(accountId)
                 .build();
@@ -192,9 +162,21 @@ public class ConnectorValidationService {
                 // unary response already completed in onNext
             }
         });
-        return Uni.createFrom().completionStage(future)
-                .onFailure().transform(throwable ->
-                        phaseFailure("account-manager GetAccount", null, accountId, throwable));
+        return awaitUnary(future, "account-manager GetAccount", null, accountId);
+    }
+
+    private <T> T awaitUnary(CompletableFuture<T> future, String phase, String datasourceId, String accountId) {
+        try {
+            return future.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw Status.CANCELLED
+                    .withDescription(phase + " interrupted")
+                    .withCause(e)
+                    .asRuntimeException();
+        } catch (ExecutionException e) {
+            throw (StatusRuntimeException) phaseFailure(phase, datasourceId, accountId, e.getCause());
+        }
     }
 
     private Throwable phaseFailure(String phase, String datasourceId, String accountId, Throwable throwable) {

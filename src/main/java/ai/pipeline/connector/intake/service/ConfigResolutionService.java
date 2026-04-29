@@ -5,7 +5,6 @@ import ai.pipestream.data.v1.HydrationConfig;
 import ai.pipestream.data.v1.IngestionConfig;
 import ai.pipestream.data.v1.IngressMode;
 import ai.pipestream.data.v1.RightToBeForgottenConfig;
-import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -38,25 +37,11 @@ public class ConfigResolutionService {
      */
     public ConfigResolutionService() {}
 
-    /**
-     * Resolve Tier 1 configuration for a datasource.
-     * <p>
-     * Validates the datasource API key and returns the service-level config
-     * from datasource-admin. Engine will handle Tier 2 (graph-level) config
-     * resolution during IntakeHandoff.
-     *
-     * @param datasourceId The datasource ID
-     * @param apiKey The API key for validation
-     * @return Uni emitting ResolvedConfig containing Tier 1 config
-     */
-    public Uni<ResolvedConfig> resolveConfig(String datasourceId, String apiKey) {
+    public ResolvedConfig resolveConfig(String datasourceId, String apiKey) {
         LOG.debugf("Resolving Tier 1 config for datasource: %s", datasourceId);
-
-        return validationService.validateDataSource(datasourceId, apiKey)
-            .map(tier1Config -> {
-                LOG.debugf("Got Tier 1 config for datasource %s", datasourceId);
-                return buildResolvedConfig(tier1Config);
-            });
+        DataSourceConfig tier1Config = validationService.validateDataSource(datasourceId, apiKey);
+        LOG.debugf("Got Tier 1 config for datasource %s", datasourceId);
+        return buildResolvedConfig(tier1Config);
     }
 
     /**

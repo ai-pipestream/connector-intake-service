@@ -1,7 +1,9 @@
 package ai.pipeline.connector.intake.util;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -151,10 +153,11 @@ public class ConnectorMetadata {
 
     /**
      * Parse a ConnectorMetadata instance from its JSON representation.
-     * Unknown fields are ignored. On parse errors, a default instance is returned.
+     * Unknown fields are ignored. Missing metadata uses defaults.
      *
      * @param json JSON string produced by {@link #toJson()} or equivalent structure
-     * @return parsed {@code ConnectorMetadata} instance; default instance if input is null/empty/invalid
+     * @return parsed {@code ConnectorMetadata} instance; default instance if input is null/empty
+     * @throws IllegalArgumentException if the metadata is malformed or has invalid field types
      */
     public static ConnectorMetadata fromJson(String json) {
         if (json == null || json.isEmpty() || json.equals("{}")) {
@@ -164,6 +167,9 @@ public class ConnectorMetadata {
         try {
             Gson gson = new Gson();
             JsonObject obj = gson.fromJson(json, JsonObject.class);
+            if (obj == null) {
+                return new ConnectorMetadata();
+            }
             
             ConnectorMetadata metadata = new ConnectorMetadata();
             
@@ -183,15 +189,18 @@ public class ConnectorMetadata {
                 JsonObject metadataObj = obj.getAsJsonObject("defaultMetadata");
                 Map<String, String> defaultMetadata = new HashMap<>();
                 for (String key : metadataObj.keySet()) {
-                    defaultMetadata.put(key, metadataObj.get(key).getAsString());
+                    JsonElement value = metadataObj.get(key);
+                    if (!value.isJsonPrimitive()) {
+                        throw new IllegalArgumentException("defaultMetadata value must be a scalar string for key: " + key);
+                    }
+                    defaultMetadata.put(key, value.getAsString());
                 }
                 metadata.setDefaultMetadata(defaultMetadata);
             }
             
             return metadata;
-        } catch (Exception e) {
-            // Return default metadata on parse error
-            return new ConnectorMetadata();
+        } catch (JsonParseException | IllegalStateException | UnsupportedOperationException | NumberFormatException e) {
+            throw new IllegalArgumentException("Invalid connector metadata JSON", e);
         }
     }
 }

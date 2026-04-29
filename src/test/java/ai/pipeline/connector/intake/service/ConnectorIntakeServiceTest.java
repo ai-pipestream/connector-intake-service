@@ -3,15 +3,22 @@ package ai.pipeline.connector.intake.service;
 import ai.pipestream.connector.intake.v1.CrawlMetadata;
 import ai.pipestream.connector.intake.v1.StartCrawlSessionRequest;
 import ai.pipestream.connector.intake.v1.UploadBlobRequest;
+import ai.pipestream.connector.intake.v1.UploadBlobResponse;
 import ai.pipestream.connector.intake.v1.UploadPipeDocRequest;
+import ai.pipestream.connector.intake.v1.UploadPipeDocResponse;
 import ai.pipestream.data.v1.PipeDoc;
 import ai.pipestream.test.support.ConnectorIntakeWireMockTestResource;
 import com.google.protobuf.ByteString;
+import io.grpc.stub.StreamObserver;
 import io.quarkus.test.common.QuarkusTestResource;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.grpc.GrpcService;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Test;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -46,7 +53,7 @@ class ConnectorIntakeServiceTest {
 
         // Act
         ai.pipestream.connector.intake.v1.UploadPipeDocResponse response =
-            intakeService.uploadPipeDoc(request).await().indefinitely();
+            uploadPipeDoc(request);
 
         // Assert
         assertTrue(response.getSuccess());
@@ -73,7 +80,7 @@ class ConnectorIntakeServiceTest {
 
         // Act
         ai.pipestream.connector.intake.v1.UploadBlobResponse response = 
-            intakeService.uploadBlob(request).await().indefinitely();
+            uploadBlob(request);
 
         // Assert
         assertTrue(response.getSuccess());
@@ -94,7 +101,7 @@ class ConnectorIntakeServiceTest {
             .build();
 
         ai.pipestream.connector.intake.v1.UploadPipeDocResponse response =
-            intakeService.uploadPipeDoc(request).await().indefinitely();
+            uploadPipeDoc(request);
 
         assertFalse(response.getSuccess());
         assertEquals("test-doc", response.getDocId());
@@ -113,7 +120,7 @@ class ConnectorIntakeServiceTest {
             .build();
 
         ai.pipestream.connector.intake.v1.UploadPipeDocResponse response =
-            intakeService.uploadPipeDoc(request).await().indefinitely();
+            uploadPipeDoc(request);
 
         assertFalse(response.getSuccess());
         assertEquals("test-doc", response.getDocId());
@@ -132,7 +139,7 @@ class ConnectorIntakeServiceTest {
             .build();
 
         ai.pipestream.connector.intake.v1.UploadPipeDocResponse response =
-            intakeService.uploadPipeDoc(request).await().indefinitely();
+            uploadPipeDoc(request);
 
         assertFalse(response.getSuccess());
         assertEquals("test-doc", response.getDocId());
@@ -151,7 +158,7 @@ class ConnectorIntakeServiceTest {
             .build();
 
         ai.pipestream.connector.intake.v1.UploadPipeDocResponse response =
-            intakeService.uploadPipeDoc(request).await().indefinitely();
+            uploadPipeDoc(request);
 
         assertFalse(response.getSuccess());
         assertEquals("test-doc", response.getDocId());
@@ -172,7 +179,7 @@ class ConnectorIntakeServiceTest {
             .build();
 
         ai.pipestream.connector.intake.v1.UploadBlobResponse response =
-            intakeService.uploadBlob(request).await().indefinitely();
+            uploadBlob(request);
 
         assertFalse(response.getSuccess());
         assertTrue(response.getMessage().contains("UNAUTHENTICATED") || response.getMessage().contains("Invalid API key"));
@@ -187,7 +194,7 @@ class ConnectorIntakeServiceTest {
             .build();
 
         ai.pipestream.connector.intake.v1.UploadPipeDocResponse response =
-            intakeService.uploadPipeDoc(request).await().indefinitely();
+            uploadPipeDoc(request);
 
         assertFalse(response.getSuccess());
         assertEquals("", response.getDocId());
@@ -202,7 +209,7 @@ class ConnectorIntakeServiceTest {
             .build();
 
         ai.pipestream.connector.intake.v1.UploadPipeDocResponse response =
-            intakeService.uploadPipeDoc(request).await().indefinitely();
+            uploadPipeDoc(request);
 
         assertFalse(response.getSuccess());
         assertEquals("", response.getDocId());
@@ -218,7 +225,7 @@ class ConnectorIntakeServiceTest {
             .build();
 
         ai.pipestream.connector.intake.v1.UploadPipeDocResponse response =
-            intakeService.uploadPipeDoc(request).await().indefinitely();
+            uploadPipeDoc(request);
 
         assertFalse(response.getSuccess());
         assertEquals("doc-1", response.getDocId());
@@ -234,7 +241,7 @@ class ConnectorIntakeServiceTest {
             .build();
 
         ai.pipestream.connector.intake.v1.UploadPipeDocResponse response =
-            intakeService.uploadPipeDoc(request).await().indefinitely();
+            uploadPipeDoc(request);
 
         assertFalse(response.getSuccess());
         assertEquals("doc-1", response.getDocId());
@@ -252,7 +259,7 @@ class ConnectorIntakeServiceTest {
             .build();
 
         ai.pipestream.connector.intake.v1.UploadBlobResponse response =
-            intakeService.uploadBlob(request).await().indefinitely();
+            uploadBlob(request);
 
         assertFalse(response.getSuccess());
         assertTrue(response.getMessage().toLowerCase().contains("datasource_id"));
@@ -269,7 +276,7 @@ class ConnectorIntakeServiceTest {
             .build();
 
         ai.pipestream.connector.intake.v1.UploadBlobResponse response =
-            intakeService.uploadBlob(request).await().indefinitely();
+            uploadBlob(request);
 
         assertFalse(response.getSuccess());
         assertTrue(response.getMessage().toLowerCase().contains("api_key"));
@@ -287,9 +294,69 @@ class ConnectorIntakeServiceTest {
                 .build())
             .build();
 
-        var response = intakeService.startCrawlSession(request).await().indefinitely();
+        var response = startCrawlSession(request);
 
         assertFalse(response.getSuccess());
         assertTrue(response.getMessage().toLowerCase().contains("api_key"));
     }
+    private UploadPipeDocResponse uploadPipeDoc(UploadPipeDocRequest request) {
+        UnaryRecorder<UploadPipeDocResponse> recorder = new UnaryRecorder<>();
+        intakeService.uploadPipeDoc(request, recorder);
+        return recorder.awaitItem();
+    }
+
+    private UploadBlobResponse uploadBlob(UploadBlobRequest request) {
+        UnaryRecorder<UploadBlobResponse> recorder = new UnaryRecorder<>();
+        intakeService.uploadBlob(request, recorder);
+        return recorder.awaitItem();
+    }
+
+    private ai.pipestream.connector.intake.v1.StartCrawlSessionResponse startCrawlSession(
+            StartCrawlSessionRequest request) {
+        UnaryRecorder<ai.pipestream.connector.intake.v1.StartCrawlSessionResponse> recorder = new UnaryRecorder<>();
+        intakeService.startCrawlSession(request, recorder);
+        return recorder.awaitItem();
+    }
+
+    private static final class UnaryRecorder<T> implements StreamObserver<T> {
+        private final CountDownLatch done = new CountDownLatch(1);
+        private final AtomicReference<T> item = new AtomicReference<>();
+        private final AtomicReference<Throwable> error = new AtomicReference<>();
+
+        @Override
+        public void onNext(T value) {
+            item.set(value);
+        }
+
+        @Override
+        public void onError(Throwable t) {
+            error.set(t);
+            done.countDown();
+        }
+
+        @Override
+        public void onCompleted() {
+            done.countDown();
+        }
+
+        T awaitItem() {
+            try {
+                if (!done.await(10, TimeUnit.SECONDS)) {
+                    throw new AssertionError("Timed out waiting for unary response");
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError("Interrupted waiting for unary response", e);
+            }
+            if (error.get() != null) {
+                throw new AssertionError("Unary call failed", error.get());
+            }
+            T value = item.get();
+            if (value == null) {
+                throw new AssertionError("Unary call completed without a response");
+            }
+            return value;
+        }
+    }
+
 }

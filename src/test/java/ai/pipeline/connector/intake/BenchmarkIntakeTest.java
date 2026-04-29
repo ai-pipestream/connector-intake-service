@@ -105,7 +105,7 @@ public class BenchmarkIntakeTest {
             new ConfigResolutionService.ResolvedConfig(tier1Config, IngestionConfig.getDefaultInstance());
 
         when(configResolutionService.resolveConfig(anyString(), anyString()))
-                .thenReturn(Uni.createFrom().item(resolvedConfig));
+                .thenReturn(resolvedConfig);
 
         // Mock engine handoff
         IntakeHandoffResponse handoffResponse = IntakeHandoffResponse.newBuilder()
@@ -114,7 +114,7 @@ public class BenchmarkIntakeTest {
                 .setEntryNodeId("node-1")
                 .build();
         when(engineClient.handoffReferenceToEngine(anyString(), anyString(), anyString(), anyString(), any(), any()))
-                .thenReturn(Uni.createFrom().item(handoffResponse));
+                .thenReturn(handoffResponse);
 
         UploadBlobRequest request = UploadBlobRequest.newBuilder()
                 .setDatasourceId(datasourceId)
@@ -207,7 +207,7 @@ public class BenchmarkIntakeTest {
             new ConfigResolutionService.ResolvedConfig(tier1Config, IngestionConfig.getDefaultInstance());
 
         when(configResolutionService.resolveConfig(anyString(), anyString()))
-                .thenReturn(Uni.createFrom().item(resolvedConfig));
+                .thenReturn(resolvedConfig);
 
         // Mock engine handoff
         IntakeHandoffResponse handoffResponse = IntakeHandoffResponse.newBuilder()
@@ -216,7 +216,7 @@ public class BenchmarkIntakeTest {
                 .setEntryNodeId("node-1")
                 .build();
         when(engineClient.handoffReferenceToEngine(anyString(), anyString(), anyString(), anyString(), any(), any()))
-                .thenReturn(Uni.createFrom().item(handoffResponse));
+                .thenReturn(handoffResponse);
 
         UploadBlobRequest request = UploadBlobRequest.newBuilder()
                 .setDatasourceId(datasourceId)

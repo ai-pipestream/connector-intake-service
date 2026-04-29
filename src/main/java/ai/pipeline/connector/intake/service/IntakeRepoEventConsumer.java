@@ -2,16 +2,18 @@ package ai.pipeline.connector.intake.service;
 
 import ai.pipestream.data.v1.IngestionConfig;
 import ai.pipestream.data.v1.IngressMode;
+import ai.pipestream.engine.v1.IntakeHandoffResponse;
 import ai.pipestream.events.v1.IntakeRepoEvent;
 import ai.pipestream.events.v1.IntakeRepoEventType;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
-import io.smallrye.mutiny.Uni;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
+
+import java.util.concurrent.CompletionStage;
 
 /**
  * Consumes IntakeRepoEvent messages and initiates intake handoff.
@@ -29,94 +31,92 @@ public class IntakeRepoEventConsumer {
     ConfigResolutionService configResolutionService;
 
     @Incoming("intake-repo-events-in")
-    public Uni<Void> consumeIntakeRepoEvents(Message<IntakeRepoEvent> message) {
-        IntakeRepoEvent event = message.getPayload();
+    public CompletionStage<Void> consumeIntakeRepoEvents(Message<IntakeRepoEvent> message) {
+        try {
+            IntakeRepoEvent event = message.getPayload();
+            if (event == null) {
+                LOG.warn("Received empty IntakeRepoEvent message");
+                return message.ack();
+            }
 
-        if (event == null) {
-            LOG.warn("Received empty IntakeRepoEvent message");
-            return ackMessage(message);
+            String eventType = event.getEventType() == IntakeRepoEventType.UNRECOGNIZED
+                    ? "UNRECOGNIZED"
+                    : event.getEventType().toString();
+
+            if (event.getEventType() == IntakeRepoEventType.INTAKE_REPO_EVENT_TYPE_UNSPECIFIED) {
+                LOG.warnf("Skipping intake event without explicit event type: doc_id=%s, event_id=%s",
+                        event.getDocId(), event.getEventId());
+                return message.ack();
+            }
+
+            if (event.getEventType() == IntakeRepoEventType.INTAKE_REPO_EVENT_TYPE_DELETED) {
+                LOG.infof("Received intake deleted event for doc_id=%s (document-aware cleanup deferred)",
+                        event.getDocId());
+                return message.ack();
+            }
+
+            if (!event.getEventType().equals(IntakeRepoEventType.INTAKE_REPO_EVENT_TYPE_CREATED)) {
+                LOG.warnf("Skipping unsupported intake event type=%s for doc_id=%s", eventType, event.getDocId());
+                return message.ack();
+            }
+
+            if (event.getDatasourceId().isBlank() || event.getAccountId().isBlank() || event.getDocId().isBlank()) {
+                LOG.warnf("Skipping invalid intake created event: doc_id=%s, datasource_id=%s, account_id=%s",
+                        event.getDocId(), event.getDatasourceId(), event.getAccountId());
+                return message.ack();
+            }
+
+            IngestionConfig ingestionConfig = buildIngestionConfig(event);
+            handoffToEngine(event, ingestionConfig);
+            return message.ack();
+        } catch (RuntimeException e) {
+            IntakeRepoEvent event = message.getPayload();
+            LOG.errorf(e, "Failed to consume intake repo event: doc_id=%s, event_id=%s",
+                    event == null ? "" : event.getDocId(),
+                    event == null ? "" : event.getEventId());
+            return message.nack(e);
         }
-
-        String eventType = event.getEventType() == IntakeRepoEventType.UNRECOGNIZED
-                ? "UNRECOGNIZED"
-                : event.getEventType().toString();
-
-        if (event.getEventType() == IntakeRepoEventType.INTAKE_REPO_EVENT_TYPE_UNSPECIFIED) {
-            LOG.warnf("Skipping intake event without explicit event type: doc_id=%s, event_id=%s", event.getDocId(), event.getEventId());
-            return ackMessage(message);
-        }
-
-        if (event.getEventType() == IntakeRepoEventType.INTAKE_REPO_EVENT_TYPE_DELETED) {
-            LOG.infof("Received intake deleted event for doc_id=%s (document-aware cleanup deferred)",
-                    event.getDocId());
-            return ackMessage(message);
-        }
-
-        if (!event.getEventType().equals(IntakeRepoEventType.INTAKE_REPO_EVENT_TYPE_CREATED)) {
-            LOG.warnf("Skipping unsupported intake event type=%s for doc_id=%s", eventType, event.getDocId());
-            return ackMessage(message);
-        }
-
-        if (event.getDatasourceId().isBlank() || event.getAccountId().isBlank() || event.getDocId().isBlank()) {
-            LOG.warnf("Skipping invalid intake created event: doc_id=%s, datasource_id=%s, account_id=%s",
-                    event.getDocId(), event.getDatasourceId(), event.getAccountId());
-            return ackMessage(message);
-        }
-
-        return buildIngestionConfig(event)
-                .flatMap(ingestionConfig ->
-                        handoffToEngine(event, ingestionConfig))
-                .onItem().ignore().andContinueWith(() -> null)
-                .onFailure().invoke(throwable ->
-                        LOG.errorf(throwable, "Failed to consume intake repo event: doc_id=%s, event_id=%s",
-                                event.getDocId(), event.getEventId()))
-                .onItemOrFailure().transformToUni((ignored, error) -> {
-                    if (error != null) {
-                        return Uni.createFrom().failure(error);
-                    }
-                    return ackMessage(message);
-                })
-                .onFailure().recoverWithUni(failure ->
-                        nackMessage(message, failure));
     }
 
-    private Uni<IngestionConfig> buildIngestionConfig(IntakeRepoEvent event) {
+    private IngestionConfig buildIngestionConfig(IntakeRepoEvent event) {
         String apiKey = extractMetadataValue(event.getMetadata(), API_KEY_METADATA_FIELD);
         if (apiKey == null || apiKey.isBlank()) {
             LOG.debugf("No API key in IntakeRepoEvent metadata; using default ingestion config for doc_id=%s",
                     event.getDocId());
-            return Uni.createFrom().item(IngestionConfig.newBuilder()
-                    .setIngressMode(IngressMode.INGRESS_MODE_HTTP_STAGED)
-                    .build());
+            return defaultHttpStagedConfig();
         }
 
-        return configResolutionService.resolveConfig(event.getDatasourceId(), apiKey)
-                .map(resolved -> resolved.withIngressMode(IngressMode.INGRESS_MODE_HTTP_STAGED))
-                .onFailure().recoverWithItem(IngestionConfig.newBuilder()
-                        .setIngressMode(IngressMode.INGRESS_MODE_HTTP_STAGED)
-                        .build());
+        try {
+            return configResolutionService.resolveConfig(event.getDatasourceId(), apiKey)
+                    .withIngressMode(IngressMode.INGRESS_MODE_HTTP_STAGED);
+        } catch (RuntimeException e) {
+            LOG.warnf(e, "Failed to resolve config from intake repo event metadata; using default config for doc_id=%s",
+                    event.getDocId());
+            return defaultHttpStagedConfig();
+        }
     }
 
-    private Uni<Void> handoffToEngine(IntakeRepoEvent event, IngestionConfig ingestionConfig) {
-        // graph_address_id for intake always uses datasource_id — the engine looks up
-        // the DatasourceInstance by datasource_id to find the graph entry node.
-        // source_node_id is informational only (e.g. "connector-intake") and must NOT be used as graph_address_id.
+    private void handoffToEngine(IntakeRepoEvent event, IngestionConfig ingestionConfig) {
         String graphAddressId = event.getDatasourceId();
-        return engineClient.handoffReferenceToEngine(
+        IntakeHandoffResponse response = engineClient.handoffReferenceToEngine(
                 event.getDocId(),
                 graphAddressId,
                 event.getDatasourceId(),
                 event.getAccountId(),
-                ingestionConfig
-        ).invoke(response -> {
-            if (response.getAccepted()) {
-                LOG.debugf("Engine accepted intake handoff for doc_id=%s, stream_id=%s, entry_node=%s",
-                        event.getDocId(), response.getAssignedStreamId(), response.getEntryNodeId());
-            } else {
-                LOG.warnf("Engine rejected intake handoff for doc_id=%s: %s",
-                        event.getDocId(), response.getMessage());
-            }
-        }).replaceWithVoid();
+                ingestionConfig);
+        if (response.getAccepted()) {
+            LOG.debugf("Engine accepted intake handoff for doc_id=%s, stream_id=%s, entry_node=%s",
+                    event.getDocId(), response.getAssignedStreamId(), response.getEntryNodeId());
+        } else {
+            LOG.warnf("Engine rejected intake handoff for doc_id=%s: %s",
+                    event.getDocId(), response.getMessage());
+        }
+    }
+
+    private IngestionConfig defaultHttpStagedConfig() {
+        return IngestionConfig.newBuilder()
+                .setIngressMode(IngressMode.INGRESS_MODE_HTTP_STAGED)
+                .build();
     }
 
     private String extractMetadataValue(Struct metadata, String key) {
@@ -129,13 +129,5 @@ public class IntakeRepoEventConsumer {
             return null;
         }
         return value.getStringValue();
-    }
-
-    private Uni<Void> ackMessage(Message<IntakeRepoEvent> message) {
-        return Uni.createFrom().<Void>completionStage(message.ack());
-    }
-
-    private Uni<Void> nackMessage(Message<IntakeRepoEvent> message, Throwable error) {
-        return Uni.createFrom().<Void>completionStage(message.nack(error));
     }
 }
