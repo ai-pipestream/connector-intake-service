@@ -1,8 +1,8 @@
 package ai.pipeline.connector.intake.http;
 
-import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.logging.Logger;
 
@@ -10,7 +10,14 @@ import java.io.InputStream;
 import java.util.Map;
 
 /**
- * HTTP client for proxying raw uploads to repository-service.
+ * Synchronous HTTP client for proxying raw uploads to repository-service.
+ *
+ * <p>Plain blocking REST call — caller (the {@code @Blocking}
+ * {@link RawUploadResource} handler) is on a worker thread, so blocking
+ * here is correct and intended. No Mutiny operators wrap the body
+ * forwarding, so the inbound HTTP request body InputStream and the outbound
+ * REST client body stream are coupled directly through the worker thread
+ * — backpressure is HTTP/2 native and visible.
  */
 @ApplicationScoped
 public class RepositoryUploadClient {
@@ -21,10 +28,18 @@ public class RepositoryUploadClient {
     @RestClient
     RepositoryUploadRestClient restClient;
 
-    public Uni<RepositoryUploadResponse> uploadRaw(InputStream body,
-                                                   long contentLength,
-                                                   int bufferSize,
-                                                   Map<String, String> headers) {
+    /**
+     * Forwards the raw upload to repository-service synchronously.
+     *
+     * @param bufferSize unused — kept in the signature for backwards
+     *                   compatibility with callers that previously needed
+     *                   to pass a chunk size. Quarkus REST client streams
+     *                   the body without per-chunk buffering.
+     */
+    public RepositoryUploadResponse uploadRaw(InputStream body,
+                                              long contentLength,
+                                              int bufferSize,
+                                              Map<String, String> headers) {
         String contentType = headers.get("Content-Type");
         String accountId = headers.get("x-account-id");
         String connectorId = headers.get("x-connector-id");
@@ -37,16 +52,15 @@ public class RepositoryUploadClient {
 
         LOG.debugf("Proxying raw upload to repository-service via REST client (doc_id=%s)", docId);
 
-        return restClient.uploadRaw(body, contentType, contentLength, accountId, connectorId,
-                datasourceId, docId, driveName, filename, checksumSha256, requestId)
-            .map(response -> {
-                String respContentType = response.getHeaderString("content-type");
-                if (respContentType == null || respContentType.isBlank()) {
-                    respContentType = "application/json";
-                }
-                String respBody = response.readEntity(String.class);
-                return new RepositoryUploadResponse(response.getStatus(), respContentType, respBody);
-            });
+        try (Response response = restClient.uploadRaw(body, contentType, contentLength, accountId, connectorId,
+                datasourceId, docId, driveName, filename, checksumSha256, requestId)) {
+            String respContentType = response.getHeaderString("content-type");
+            if (respContentType == null || respContentType.isBlank()) {
+                respContentType = "application/json";
+            }
+            String respBody = response.readEntity(String.class);
+            return new RepositoryUploadResponse(response.getStatus(), respContentType, respBody);
+        }
     }
 
     public record RepositoryUploadResponse(int statusCode, String contentType, String body) {}

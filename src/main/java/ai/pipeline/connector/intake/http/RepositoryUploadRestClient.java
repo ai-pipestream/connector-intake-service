@@ -1,6 +1,5 @@
 package ai.pipeline.connector.intake.http;
 
-import io.smallrye.mutiny.Uni;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
@@ -13,6 +12,14 @@ import java.io.InputStream;
 
 /**
  * Declarative REST client for proxying raw uploads to repository-service.
+ *
+ * <p>Synchronous {@link Response} return (not {@code Uni<Response>}). The
+ * Mutiny-wrapped variant was eating backpressure events under concurrent
+ * load — 9 parallel s3 uploads would all log entry on connector-intake then
+ * silently lose their chains, leaving the body InputStream readers blocked
+ * with no thread parked on them and no error fired. Plain blocking REST
+ * client streams the body bytes directly through a worker thread; backpressure
+ * is HTTP/2 native and visible.
  */
 @RegisterRestClient(configKey = "repository-upload")
 @Path("/internal/uploads/raw")
@@ -20,7 +27,7 @@ public interface RepositoryUploadRestClient {
 
     @POST
     @Consumes(MediaType.WILDCARD)
-    Uni<Response> uploadRaw(
+    Response uploadRaw(
         InputStream body,
         @HeaderParam("Content-Type") String contentType,
         @HeaderParam("Content-Length") long contentLength,

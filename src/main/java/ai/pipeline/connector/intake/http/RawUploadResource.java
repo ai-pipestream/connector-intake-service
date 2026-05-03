@@ -5,8 +5,7 @@ import ai.pipeline.connector.intake.util.UriCanonicalizer;
 import ai.pipestream.server.util.ChunkSizeCalculator;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
-import io.smallrye.common.annotation.Blocking;
-import io.smallrye.mutiny.Uni;
+import io.smallrye.common.annotation.RunOnVirtualThread;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.HeaderParam;
@@ -42,12 +41,28 @@ public class RawUploadResource {
     @Inject
     ChunkSizeCalculator chunkSizeCalculator;
 
+    /**
+     * Synchronous proxy of a raw upload to repository-service.
+     *
+     * <p>{@link RunOnVirtualThread} dispatches each request on its own
+     * virtual thread — concurrent uploads each get their own VT, blocking
+     * on body forwarding parks the VT without pinning a carrier thread,
+     * and there's no Mutiny operator chain wrapping the body InputStream
+     * (which had been silently losing subscription events under burst
+     * load: 9 parallel s3 uploads would log entry, then their chains
+     * would evaporate with no error and no thread parked anywhere).
+     *
+     * <p>Body streaming through {@link RepositoryUploadClient}'s now-
+     * synchronous REST client is direct blocking I/O: the inbound HTTP
+     * request body InputStream and the outbound REST client body
+     * stream are coupled through the VT, with HTTP/2 native backpressure.
+     */
     @POST
     @Path("/raw")
     @Consumes(MediaType.WILDCARD)
     @Produces(MediaType.APPLICATION_JSON)
-    @Blocking
-    public Uni<Response> uploadRaw(
+    @RunOnVirtualThread
+    public Response uploadRaw(
         InputStream body,
         @HeaderParam("content-length") Long contentLength,
         @HeaderParam("content-type") String contentType,
@@ -62,73 +77,77 @@ public class RawUploadResource {
         @HeaderParam("x-request-id") String requestId
     ) {
         if (body == null) {
-            return Uni.createFrom().item(errorResponse(Response.Status.BAD_REQUEST, "body is required"));
+            return errorResponse(Response.Status.BAD_REQUEST, "body is required");
         }
         if (contentLength == null || contentLength <= 0) {
             closeQuietly(body);
-            return Uni.createFrom().item(errorResponse(Response.Status.BAD_REQUEST, "Content-Length header is required"));
+            return errorResponse(Response.Status.BAD_REQUEST, "Content-Length header is required");
         }
         if (datasourceId == null || datasourceId.isBlank()) {
             closeQuietly(body);
-            return Uni.createFrom().item(errorResponse(Response.Status.BAD_REQUEST, "x-datasource-id is required"));
+            return errorResponse(Response.Status.BAD_REQUEST, "x-datasource-id is required");
         }
         if (apiKey == null || apiKey.isBlank()) {
             closeQuietly(body);
-            return Uni.createFrom().item(errorResponse(Response.Status.BAD_REQUEST, "x-api-key is required"));
+            return errorResponse(Response.Status.BAD_REQUEST, "x-api-key is required");
         }
 
         String derivedDocId = deriveDocId(datasourceId, clientDocId, sourceDocId, sourceUri, sourcePath);
         if (derivedDocId == null) {
             closeQuietly(body);
-            return Uni.createFrom().item(errorResponse(Response.Status.BAD_REQUEST,
-                "Cannot determine doc_id. Provide x-doc-id, x-source-doc-id, x-source-uri, or x-source-path"));
+            return errorResponse(Response.Status.BAD_REQUEST,
+                "Cannot determine doc_id. Provide x-doc-id, x-source-doc-id, x-source-uri, or x-source-path");
         }
 
-        return Uni.createFrom().item(() -> configResolutionService.resolveConfig(datasourceId, apiKey))
-            .flatMap(resolved -> {
-                String accountId = resolved.tier1Config().getAccountId();
-                String connectorId = resolved.tier1Config().getConnectorId();
-                String driveName = accountId + ":intake";
+        try {
+            ConfigResolutionService.ResolvedConfig resolved =
+                    configResolutionService.resolveConfig(datasourceId, apiKey);
+            String accountId = resolved.tier1Config().getAccountId();
+            String connectorId = resolved.tier1Config().getConnectorId();
+            String driveName = accountId + ":intake";
 
-                if (accountId == null || accountId.isBlank()) {
-                    return Uni.createFrom().item(errorResponse(Response.Status.INTERNAL_SERVER_ERROR, "Account ID missing from config"));
-                }
-                if (connectorId == null || connectorId.isBlank()) {
-                    return Uni.createFrom().item(errorResponse(Response.Status.INTERNAL_SERVER_ERROR, "Connector ID missing from config"));
-                }
-                // driveName is derived from accountId (already validated above)
+            if (accountId == null || accountId.isBlank()) {
+                closeQuietly(body);
+                return errorResponse(Response.Status.INTERNAL_SERVER_ERROR, "Account ID missing from config");
+            }
+            if (connectorId == null || connectorId.isBlank()) {
+                closeQuietly(body);
+                return errorResponse(Response.Status.INTERNAL_SERVER_ERROR, "Connector ID missing from config");
+            }
 
-                Map<String, String> headers = new HashMap<>();
-                if (contentType != null && !contentType.isBlank()) {
-                    headers.put("Content-Type", contentType);
-                }
-                headers.put("x-account-id", accountId);
-                headers.put("x-connector-id", connectorId);
-                headers.put("x-datasource-id", datasourceId);
-                headers.put("x-doc-id", derivedDocId);
-                headers.put("x-drive-name", driveName);
-                if (filename != null && !filename.isBlank()) {
-                    headers.put("x-filename", filename);
-                }
-                if (checksumSha256 != null && !checksumSha256.isBlank()) {
-                    headers.put("x-checksum-sha256", checksumSha256);
-                }
-                headers.put("x-request-id", requestId != null && !requestId.isBlank()
-                    ? requestId
-                    : UUID.randomUUID().toString());
+            Map<String, String> headers = new HashMap<>();
+            if (contentType != null && !contentType.isBlank()) {
+                headers.put("Content-Type", contentType);
+            }
+            headers.put("x-account-id", accountId);
+            headers.put("x-connector-id", connectorId);
+            headers.put("x-datasource-id", datasourceId);
+            headers.put("x-doc-id", derivedDocId);
+            headers.put("x-drive-name", driveName);
+            if (filename != null && !filename.isBlank()) {
+                headers.put("x-filename", filename);
+            }
+            if (checksumSha256 != null && !checksumSha256.isBlank()) {
+                headers.put("x-checksum-sha256", checksumSha256);
+            }
+            headers.put("x-request-id", requestId != null && !requestId.isBlank()
+                ? requestId
+                : UUID.randomUUID().toString());
 
-                int chunkSize = chunkSizeCalculator.calculateChunkSize(contentLength);
-                LOG.infof("Proxying upload for doc_id=%s (size: %d bytes, chunk size: %d bytes)", 
-                    derivedDocId, contentLength, chunkSize);
+            int chunkSize = chunkSizeCalculator.calculateChunkSize(contentLength);
+            LOG.infof("Proxying upload for doc_id=%s (size: %d bytes, chunk size: %d bytes)",
+                derivedDocId, contentLength, chunkSize);
 
-                return repositoryUploadClient.uploadRaw(body, contentLength, chunkSize, headers)
-                    .map(result -> withJaxrsClassLoader(() -> Response.status(result.statusCode())
-                        .entity(result.body())
-                        .type(result.contentType())
-                        .build()));
-            })
-            .onFailure().invoke(throwable -> closeQuietly(body))
-            .onFailure().recoverWithItem(throwable -> mapError(throwable));
+            RepositoryUploadClient.RepositoryUploadResponse result =
+                    repositoryUploadClient.uploadRaw(body, contentLength, chunkSize, headers);
+            return withJaxrsClassLoader(() -> Response.status(result.statusCode())
+                    .entity(result.body())
+                    .type(result.contentType())
+                    .build());
+        } catch (RuntimeException throwable) {
+            closeQuietly(body);
+            return mapError(throwable);
+        }
     }
 
     private Response mapError(Throwable throwable) {

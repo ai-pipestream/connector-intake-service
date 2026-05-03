@@ -7,6 +7,7 @@ import ai.pipestream.events.v1.IntakeRepoEvent;
 import ai.pipestream.events.v1.IntakeRepoEventType;
 import com.google.protobuf.Struct;
 import com.google.protobuf.Value;
+import io.smallrye.common.annotation.RunOnVirtualThread;
 import org.eclipse.microprofile.reactive.messaging.Incoming;
 import org.eclipse.microprofile.reactive.messaging.Message;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -30,7 +31,25 @@ public class IntakeRepoEventConsumer {
     @Inject
     ConfigResolutionService configResolutionService;
 
+    /**
+     * @RunOnVirtualThread tells SmallRye Reactive Messaging to dispatch each
+     * incoming Kafka record on its own virtual thread instead of the Vert.x
+     * event loop. The handler body calls
+     * {@link EngineClient#handoffReferenceToEngine} which does a synchronous
+     * {@code CompletableFuture.get()} on the engine gRPC response — without
+     * this annotation, that {@code .get()} blocks the event loop and Vert.x
+     * fires {@code BlockedThreadChecker} after 2s. On a virtual thread the
+     * blocking call parks without pinning a carrier thread, so it's safe.
+     *
+     * <p>Same shape SmallRye accepts for {@code @Incoming} as Mutiny
+     * ({@code Uni<Void>}) and plain async ({@code CompletionStage<Void>});
+     * we keep {@code CompletionStage<Void>} so the explicit
+     * {@link Message#ack()} / {@link Message#nack(Throwable)} calls drive
+     * Kafka offset commits with the same skip-and-ack semantics for
+     * unsupported event types.
+     */
     @Incoming("intake-repo-events-in")
+    @RunOnVirtualThread
     public CompletionStage<Void> consumeIntakeRepoEvents(Message<IntakeRepoEvent> message) {
         try {
             IntakeRepoEvent event = message.getPayload();
