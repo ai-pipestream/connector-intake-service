@@ -42,6 +42,18 @@ public class StreamingPipeDocObserver implements StreamObserver<UploadPipeDocStr
                 : null;
         if (serverResponses != null) {
             serverResponses.disableAutoInboundFlowControl();
+            // Standard gRPC server-streaming idiom: when the client cancels
+            // (deadline expired, RST_STREAM, network died, client crashed),
+            // the framework closes the response observer underneath us. The
+            // cancel handler stops the worker VT before it tries to write
+            // into a closed observer, which would throw
+            // IllegalStateException("call already closed"). Without this,
+            // every client-side cancel during an in-flight upload produced
+            // an uncaught exception in the worker VT and 1-2 dropped acks
+            // per stream; the JDBC connector then tagged those as
+            // "retryable failures" and the wrapping retry loop made the
+            // problem look like a sustained outage.
+            serverResponses.setOnCancelHandler(() -> stopped = true);
         }
         Thread.startVirtualThread(this::runMailbox);
     }
@@ -73,7 +85,7 @@ public class StreamingPipeDocObserver implements StreamObserver<UploadPipeDocStr
         }
         if (!mailbox.offer(event)) {
             stopped = true;
-            responses.onError(Status.RESOURCE_EXHAUSTED
+            safeResponseOnError(Status.RESOURCE_EXHAUSTED
                     .withDescription("stream mailbox full; inbound flow control was exceeded")
                     .asRuntimeException());
         }
@@ -91,26 +103,77 @@ public class StreamingPipeDocObserver implements StreamObserver<UploadPipeDocStr
                 }
                 if (event.completed()) {
                     stopped = true;
-                    responses.onCompleted();
+                    safeResponseOnCompleted();
                     return;
                 }
 
                 UploadPipeDocStreamResponse response = handleStreamingRequest(event.request());
-                responses.onNext(response);
+                if (!safeResponseOnNext(response)) {
+                    // Client is already gone; no point processing more.
+                    stopped = true;
+                    return;
+                }
                 requestNext();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 stopped = true;
-                responses.onError(Status.CANCELLED
+                safeResponseOnError(Status.CANCELLED
                         .withDescription("stream worker interrupted")
                         .withCause(e)
                         .asRuntimeException());
                 return;
             } catch (RuntimeException t) {
                 stopped = true;
-                responses.onError(t);
+                safeResponseOnError(t);
                 return;
             }
+        }
+    }
+
+    /**
+     * Writes one response onto the response observer, but only if the client
+     * hasn't cancelled. Returns {@code false} when the write was skipped
+     * because the stream is already closed (so the caller can stop pumping).
+     *
+     * <p>Wrapping every write through this guard is the standard gRPC
+     * server-streaming pattern. The {@link
+     * ServerCallStreamObserver#isCancelled()} check rules out the normal
+     * cancel race; the try/catch on {@link IllegalStateException} catches
+     * the rare "framework closed between isCancelled() and onNext()" race.
+     */
+    private boolean safeResponseOnNext(UploadPipeDocStreamResponse response) {
+        if (serverResponses != null && serverResponses.isCancelled()) {
+            return false;
+        }
+        try {
+            responses.onNext(response);
+            return true;
+        } catch (IllegalStateException alreadyClosed) {
+            LOG.debugf("response stream already closed; dropping ack source_doc_id=%s",
+                    response.getRef().getSourceDocId());
+            return false;
+        }
+    }
+
+    private void safeResponseOnCompleted() {
+        if (serverResponses != null && serverResponses.isCancelled()) {
+            return;
+        }
+        try {
+            responses.onCompleted();
+        } catch (IllegalStateException alreadyClosed) {
+            LOG.debugf("response stream already closed; skipping onCompleted");
+        }
+    }
+
+    private void safeResponseOnError(Throwable t) {
+        if (serverResponses != null && serverResponses.isCancelled()) {
+            return;
+        }
+        try {
+            responses.onError(t);
+        } catch (IllegalStateException alreadyClosed) {
+            LOG.debugf("response stream already closed; skipping onError");
         }
     }
 
