@@ -32,7 +32,7 @@ public class IntakeRepoEventConsumer {
     ConfigResolutionService configResolutionService;
 
     /**
-     * @RunOnVirtualThread tells SmallRye Reactive Messaging to dispatch each
+     * {@code @RunOnVirtualThread} tells SmallRye Reactive Messaging to dispatch each
      * incoming Kafka record on its own virtual thread instead of the Vert.x
      * event loop. The handler body calls
      * {@link EngineClient#handoffReferenceToEngine} which does a synchronous

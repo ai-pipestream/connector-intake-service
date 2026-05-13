@@ -16,6 +16,9 @@ import org.jboss.logging.Logger;
 
 import java.time.Instant;
 
+/**
+ * Service for handling gRPC blob uploads.
+ */
 @ApplicationScoped
 public class GrpcBlobUploadService {
 
@@ -28,8 +31,19 @@ public class GrpcBlobUploadService {
     PipeDocIdDeriver pipeDocIdDeriver;
 
     @Inject
-    RepositoryPipeDocHandoffService repositoryPipeDocHandoffService;
+    BlobUploadHandoffService blobUploadHandoffService;
 
+    /**
+     * Default constructor for CDI proxying.
+     */
+    public GrpcBlobUploadService() {}
+
+    /**
+     * Uploads a blob via gRPC.
+     *
+     * @param request The upload request
+     * @param responseObserver Stream observer for the response
+     */
     public void uploadBlob(UploadBlobRequest request,
                            StreamObserver<UploadBlobResponse> responseObserver) {
         try {
@@ -111,7 +125,7 @@ public class GrpcBlobUploadService {
                     .setBlobBag(BlobBag.newBuilder().setBlob(blob).build())
                     .build();
 
-            return repositoryPipeDocHandoffService.persistBlobAndHandoff(
+            return blobUploadHandoffService.persistBlobAndHandoff(
                     pipeDoc, resolved, startTime, request.getCrawlId());
         } catch (RuntimeException e) {
             long totalTime = System.nanoTime() - startTime;

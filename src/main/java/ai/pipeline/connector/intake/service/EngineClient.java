@@ -5,42 +5,44 @@ import ai.pipestream.data.v1.IngestionConfig;
 import ai.pipestream.data.v1.PipeDoc;
 import ai.pipestream.data.v1.PipeStream;
 import ai.pipestream.data.v1.StreamMetadata;
-import ai.pipestream.engine.v1.EngineV1ServiceGrpc;
 import ai.pipestream.engine.v1.IntakeHandoffRequest;
 import ai.pipestream.engine.v1.IntakeHandoffResponse;
 import com.google.protobuf.Timestamp;
-import io.grpc.Channel;
-import io.grpc.Context;
-import io.grpc.Status;
-import io.grpc.StatusRuntimeException;
-import io.grpc.stub.StreamObserver;
-import io.quarkus.grpc.GrpcClient;
 import jakarta.enterprise.context.ApplicationScoped;
-import org.eclipse.microprofile.config.inject.ConfigProperty;
+import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
 import java.time.Instant;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 
 /**
- * Client for engine service integration. Uses standard async gRPC stubs.
+ * Client for engine service integration. Every call goes through
+ * {@link IntakeHandoffStreamClient}'s long-lived bidi stream — no per-call
+ * unary RPC, no Quarkus {@code BlockingServerInterceptor.VirtualReplayListener}
+ * race surface on the hot path.
  */
 @ApplicationScoped
 public class EngineClient {
 
     private static final Logger LOG = Logger.getLogger(EngineClient.class);
 
-    @GrpcClient("engine")
-    Channel engineChannel;
+    @Inject
+    IntakeHandoffStreamClient intakeStreamClient;
 
-    @ConfigProperty(name = "pipestream.intake.engine.deadline-ms", defaultValue = "30000")
-    long deadlineMs;
-
+    /**
+     * Default constructor for CDI proxying.
+     */
     public EngineClient() {}
 
+    /**
+     * Hands off a document to the engine without a crawl ID.
+     *
+     * @param pipeDoc The document to hand off
+     * @param datasourceId The identifier of the datasource
+     * @param accountId The identifier of the account
+     * @param ingestionConfig The ingestion configuration
+     * @return The engine's response to the handoff request
+     */
     public IntakeHandoffResponse handoffToEngine(
             PipeDoc pipeDoc,
             String datasourceId,
@@ -49,6 +51,16 @@ public class EngineClient {
         return handoffToEngine(pipeDoc, datasourceId, accountId, ingestionConfig, null);
     }
 
+    /**
+     * Hands off a document to the engine with an optional crawl ID.
+     *
+     * @param pipeDoc The document to hand off
+     * @param datasourceId The identifier of the datasource
+     * @param accountId The identifier of the account
+     * @param ingestionConfig The ingestion configuration
+     * @param crawlId The identifier of the crawl session (optional)
+     * @return The engine's response to the handoff request
+     */
     public IntakeHandoffResponse handoffToEngine(
             PipeDoc pipeDoc,
             String datasourceId,
@@ -68,6 +80,16 @@ public class EngineClient {
         return response;
     }
 
+    /**
+     * Hands off a document reference to the engine without a crawl ID.
+     *
+     * @param docId The Pipestream internal document identifier
+     * @param sourceNodeId The identifier of the source node
+     * @param datasourceId The identifier of the datasource
+     * @param accountId The identifier of the account
+     * @param ingestionConfig The ingestion configuration
+     * @return The engine's response to the handoff request
+     */
     public IntakeHandoffResponse handoffReferenceToEngine(
             String docId,
             String sourceNodeId,
@@ -77,6 +99,17 @@ public class EngineClient {
         return handoffReferenceToEngine(docId, sourceNodeId, datasourceId, accountId, ingestionConfig, null);
     }
 
+    /**
+     * Hands off a document reference to the engine with an optional crawl ID.
+     *
+     * @param docId The Pipestream internal document identifier
+     * @param sourceNodeId The identifier of the source node
+     * @param datasourceId The identifier of the datasource
+     * @param accountId The identifier of the account
+     * @param ingestionConfig The ingestion configuration
+     * @param crawlId The identifier of the crawl session (optional)
+     * @return The engine's response to the handoff request
+     */
     public IntakeHandoffResponse handoffReferenceToEngine(
             String docId,
             String sourceNodeId,
@@ -96,33 +129,40 @@ public class EngineClient {
         return response;
     }
 
+    /**
+     * Hands off one document to the engine.
+     *
+     * <p>Delegates to {@link IntakeHandoffStreamClient}, which holds a single
+     * long-lived bidi stream open to the engine and multiplexes per-doc
+     * requests over it. Replaced the prior per-call unary
+     * {@code stub.intakeHandoff(req, observer)} pattern: that path went
+     * through Quarkus's {@code BlockingServerInterceptor.VirtualReplayListener}
+     * on every request and was observed to drop ~5/1000 docs under load
+     * with {@code INTERNAL: Half-closed without a request}. The bidi RPC
+     * avoids the per-call buffer-allocation pattern that triggers the
+     * drops.
+     *
+     * <p>Method signature unchanged from the unary version — every existing
+     * caller ({@code handoffToEngine}, {@code handoffReferenceToEngine},
+     * blob upload, IntakeRepoEventConsumer) automatically becomes bidi.
+     *
+     * @param request The handoff request to send to the engine
+     * @return The engine's response to the handoff request
+     */
     public IntakeHandoffResponse intakeHandoff(IntakeHandoffRequest request) {
-        CompletableFuture<IntakeHandoffResponse> future = new CompletableFuture<>();
-        EngineV1ServiceGrpc.EngineV1ServiceStub stub = EngineV1ServiceGrpc.newStub(engineChannel)
-                .withDeadlineAfter(deadlineMs, TimeUnit.MILLISECONDS);
-        try {
-            Context.ROOT.run(() -> stub.intakeHandoff(request, new StreamObserver<>() {
-                @Override
-                public void onNext(IntakeHandoffResponse value) {
-                    future.complete(value);
-                }
-
-                @Override
-                public void onError(Throwable t) {
-                    future.completeExceptionally(t);
-                }
-
-                @Override
-                public void onCompleted() {
-                    // unary response already completed in onNext
-                }
-            }));
-        } catch (RuntimeException e) {
-            future.completeExceptionally(e);
-        }
-        return awaitUnary(future, "engine IntakeHandoff");
+        return intakeStreamClient.intakeHandoff(request);
     }
 
+    /**
+     * Build an IntakeHandoffRequest for an inline document.
+     *
+     * @param pipeDoc The document to include in the request
+     * @param datasourceId The identifier of the datasource
+     * @param accountId The identifier of the account
+     * @param ingestionConfig The ingestion configuration
+     * @param crawlId The identifier of the crawl session (optional)
+     * @return A constructed IntakeHandoffRequest
+     */
     public static IntakeHandoffRequest buildHandoffRequest(PipeDoc pipeDoc, String datasourceId,
                                                            String accountId, IngestionConfig ingestionConfig,
                                                            String crawlId) {
@@ -200,20 +240,4 @@ public class EngineClient {
                 .build();
     }
 
-    private <T> T awaitUnary(CompletableFuture<T> future, String phase) {
-        try {
-            return future.get();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw Status.CANCELLED.withDescription(phase + " interrupted").withCause(e).asRuntimeException();
-        } catch (ExecutionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof StatusRuntimeException sre) {
-                throw sre;
-            }
-            throw Status.UNKNOWN.withDescription(phase + " failed: " + cause.getMessage())
-                    .withCause(cause)
-                    .asRuntimeException();
-        }
-    }
 }

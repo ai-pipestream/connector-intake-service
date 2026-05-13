@@ -3,7 +3,6 @@ package ai.pipeline.connector.intake.pipedoc;
 import ai.pipeline.connector.intake.service.ConfigResolutionService;
 import ai.pipeline.connector.intake.service.EngineClient;
 import ai.pipestream.connector.intake.v1.UploadBlobResponse;
-import ai.pipestream.connector.intake.v1.UploadPipeDocResponse;
 import ai.pipestream.data.v1.IngressMode;
 import ai.pipestream.data.v1.IngestionConfig;
 import ai.pipestream.data.v1.PipeDoc;
@@ -23,10 +22,31 @@ import org.jboss.logging.Logger;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
+/**
+ * Handles the gRPC blob upload path: persist the doc to repository
+ * (durable, blobs are large so we don't route them through Redis),
+ * then hand off a reference-only request to the engine.
+ *
+ * <p>The engine handoff goes through {@link EngineClient#intakeHandoff},
+ * which after the bidi migration delegates to
+ * {@link ai.pipeline.connector.intake.service.IntakeHandoffStreamClient}'s
+ * long-lived stream — same as every other intake-to-engine call. No unary.
+ *
+ * <p>Used only by {@code GrpcBlobUploadService}. Not on the gRPC PipeDoc
+ * upload path (that path always-enqueues to Redis via
+ * {@link PipeDocAcceptanceService}). Not on the POST upload path
+ * (that path uses {@code RepositoryUploadClient} directly).
+ *
+ * <p>Renamed from {@code RepositoryPipeDocHandoffService} during the
+ * intake-as-wall refactor: the {@code persistAndHandoff(PipeDoc, ...)}
+ * variant was deleted because PipeDoc uploads now flow through Redis
+ * and the kafka-sidecar drain handles engine handoff. Only the blob
+ * variant remains, hence the new class name.
+ */
 @ApplicationScoped
-public class RepositoryPipeDocHandoffService {
+public class BlobUploadHandoffService {
 
-    private static final Logger LOG = Logger.getLogger(RepositoryPipeDocHandoffService.class);
+    private static final Logger LOG = Logger.getLogger(BlobUploadHandoffService.class);
 
     @GrpcClient("repository")
     Channel repositoryChannel;
@@ -34,50 +54,20 @@ public class RepositoryPipeDocHandoffService {
     @Inject
     EngineClient engineClient;
 
-    public UploadPipeDocResponse persistAndHandoff(
-            PipeDoc pipeDoc,
-            ConfigResolutionService.ResolvedConfig resolved,
-            long startTime,
-            String crawlId) {
+    /**
+     * Default constructor for CDI proxying.
+     */
+    public BlobUploadHandoffService() {}
 
-        LOG.debugf("Persisting document to repository: doc_id=%s", pipeDoc.getDocId());
-        UploadFilesystemPipeDocResponse repoResponse = uploadFilesystemPipeDoc(pipeDoc);
-
-        long repoTime = System.nanoTime() - startTime;
-        LOG.debugf("uploadPipeDoc: repository persist took %.3f ms, doc_id=%s",
-                repoTime / 1_000_000.0, repoResponse.getDocumentId());
-
-        if (!repoResponse.getSuccess()) {
-            return UploadPipeDocResponse.newBuilder()
-                    .setSuccess(false)
-                    .setDocId(pipeDoc.getDocId())
-                    .setMessage("Repository persistence failed: " + repoResponse.getMessage())
-                    .build();
-        }
-
-        IngestionConfig ingestionConfig = resolved.withIngressMode(IngressMode.INGRESS_MODE_HTTP_STAGED);
-        String datasourceId = resolved.tier1Config().getDatasourceId();
-        IntakeHandoffResponse handoffResponse = engineClient.handoffReferenceToEngine(
-                repoResponse.getDocumentId(),
-                datasourceId,
-                datasourceId,
-                resolved.tier1Config().getAccountId(),
-                ingestionConfig,
-                crawlId);
-
-        long totalTime = System.nanoTime() - startTime;
-        LOG.debugf("uploadPipeDoc: complete in %.3f ms, accepted=%s",
-                totalTime / 1_000_000.0, handoffResponse.getAccepted());
-
-        return UploadPipeDocResponse.newBuilder()
-                .setSuccess(handoffResponse.getAccepted())
-                .setDocId(repoResponse.getDocumentId())
-                .setMessage(handoffResponse.getAccepted()
-                        ? "Document persisted and handed off to engine"
-                        : "Engine rejected: " + handoffResponse.getMessage())
-                .build();
-    }
-
+    /**
+     * Persist a blob and hand off the reference to the engine.
+     *
+     * @param pipeDoc The document to hand off
+     * @param resolved The resolved configuration
+     * @param startTime The start time of the operation in nanoseconds
+     * @param crawlId The identifier of the crawl session
+     * @return The response containing blob handoff details
+     */
     public UploadBlobResponse persistBlobAndHandoff(
             PipeDoc pipeDoc,
             ConfigResolutionService.ResolvedConfig resolved,

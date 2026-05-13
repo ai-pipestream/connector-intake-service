@@ -45,6 +45,9 @@ public class ConnectorIntakeServiceImpl extends ConnectorIntakeServiceGrpc.Conne
     @Inject
     StreamingPipeDocUploadService streamingPipeDocUploadService;
 
+    /**
+     * Default constructor for gRPC service instantiation.
+     */
     public ConnectorIntakeServiceImpl() {}
 
     @Override

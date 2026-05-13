@@ -32,6 +32,11 @@ import java.util.Base64;
 public class ApiKeyUtil {
 
     private static final Logger LOG = Logger.getLogger(ApiKeyUtil.class);
+
+    /**
+     * Default constructor for CDI proxying.
+     */
+    public ApiKeyUtil() {}
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int API_KEY_BYTES = 32; // 256 bits
 

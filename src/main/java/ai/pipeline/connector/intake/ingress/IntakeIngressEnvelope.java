@@ -9,6 +9,18 @@ import java.util.Map;
 
 /**
  * Redis Stream payload shared by connector-intake and the engine sidecar.
+ *
+ * @param request The original gRPC handoff request from the connector
+ * @param sourceDocId The document identifier from the source system
+ * @param schemaVersion Version of this envelope schema
+ * @param datasourceId The identifier of the datasource
+ * @param accountId The identifier of the account
+ * @param crawlId The identifier of the crawl session
+ * @param docId The Pipestream internal document identifier
+ * @param streamId The identifier of the ingestion stream
+ * @param payloadMode Mode of the payload (e.g., inline, reference)
+ * @param retryCount Number of times this request has been retried
+ * @param acceptedAtMs Epoch timestamp when the request was accepted
  */
 public record IntakeIngressEnvelope(
         IntakeHandoffRequest request,
@@ -38,6 +50,13 @@ public record IntakeIngressEnvelope(
     private static final String PAYLOAD_MODE_INLINE = "inline";
     private static final String PAYLOAD_MODE_REFERENCE = "reference";
 
+    /**
+     * Create an envelope from a gRPC request and source document ID.
+     *
+     * @param request The gRPC handoff request
+     * @param sourceDocId The source document ID
+     * @return A new IntakeIngressEnvelope instance
+     */
     public static IntakeIngressEnvelope fromRequest(IntakeHandoffRequest request, String sourceDocId) {
         var stream = request.getStream();
         String docId = "";
@@ -69,6 +88,11 @@ public record IntakeIngressEnvelope(
                 System.currentTimeMillis());
     }
 
+    /**
+     * Convert the envelope to a map of strings for storage in Redis Stream.
+     *
+     * @return A map containing all envelope fields
+     */
     public Map<String, String> toRedisFields() {
         Map<String, String> fields = new HashMap<>();
         fields.put(FIELD_REQUEST, Base64.getEncoder().encodeToString(request.toByteArray()));
@@ -85,6 +109,13 @@ public record IntakeIngressEnvelope(
         return fields;
     }
 
+    /**
+     * Reconstruct an envelope from a map of Redis Stream fields.
+     *
+     * @param fields The map of fields from Redis
+     * @return A reconstructed IntakeIngressEnvelope instance
+     * @throws InvalidProtocolBufferException if the request payload is corrupt
+     */
     public static IntakeIngressEnvelope fromRedisFields(Map<String, String> fields)
             throws InvalidProtocolBufferException {
         String encodedRequest = fields.get(FIELD_REQUEST);

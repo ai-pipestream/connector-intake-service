@@ -1,7 +1,6 @@
 package ai.pipeline.connector.intake.pipedoc.streaming;
 
 import ai.pipeline.connector.intake.pipedoc.PipeDocAcceptanceService;
-import ai.pipeline.connector.intake.pipedoc.PersistedPipeDocHandler;
 import ai.pipeline.connector.intake.service.ConfigResolutionService;
 import ai.pipestream.connector.intake.v1.UploadPipeDocStreamRequest;
 import ai.pipestream.connector.intake.v1.UploadPipeDocStreamResponse;
@@ -21,7 +20,6 @@ public class StreamingPipeDocObserver implements StreamObserver<UploadPipeDocStr
     private final ServerCallStreamObserver<UploadPipeDocStreamResponse> serverResponses;
     private final ConfigResolutionService configResolutionService;
     private final PipeDocAcceptanceService pipeDocAcceptanceService;
-    private final PersistedPipeDocHandler persistedPipeDocHandler;
     private final BlockingQueue<StreamEvent> mailbox = new ArrayBlockingQueue<>(2);
 
     private ai.pipestream.connector.intake.v1.StreamContext context;
@@ -31,12 +29,10 @@ public class StreamingPipeDocObserver implements StreamObserver<UploadPipeDocStr
     public StreamingPipeDocObserver(
             StreamObserver<UploadPipeDocStreamResponse> responses,
             ConfigResolutionService configResolutionService,
-            PipeDocAcceptanceService pipeDocAcceptanceService,
-            PersistedPipeDocHandler persistedPipeDocHandler) {
+            PipeDocAcceptanceService pipeDocAcceptanceService) {
         this.responses = responses;
         this.configResolutionService = configResolutionService;
         this.pipeDocAcceptanceService = pipeDocAcceptanceService;
-        this.persistedPipeDocHandler = persistedPipeDocHandler;
         this.serverResponses = responses instanceof ServerCallStreamObserver<UploadPipeDocStreamResponse> server
                 ? server
                 : null;
@@ -209,7 +205,7 @@ public class StreamingPipeDocObserver implements StreamObserver<UploadPipeDocStr
                         .build();
             }
             return pipeDocAcceptanceService.acceptStreamingItem(
-                    request.getItem(), context, resolvedConfig, persistedPipeDocHandler);
+                    request.getItem(), context, resolvedConfig);
         }
         if (request.hasDeleteRef()) {
             return UploadPipeDocStreamResponse.newBuilder()

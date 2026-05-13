@@ -1,7 +1,6 @@
 package ai.pipeline.connector.intake.pipedoc.streaming;
 
 import ai.pipeline.connector.intake.pipedoc.PipeDocAcceptanceService;
-import ai.pipeline.connector.intake.pipedoc.RepositoryPipeDocHandoffService;
 import ai.pipeline.connector.intake.service.ConfigResolutionService;
 import ai.pipestream.connector.intake.v1.UploadPipeDocStreamRequest;
 import ai.pipestream.connector.intake.v1.UploadPipeDocStreamResponse;
@@ -18,16 +17,12 @@ public class StreamingPipeDocUploadService {
     @Inject
     PipeDocAcceptanceService pipeDocAcceptanceService;
 
-    @Inject
-    RepositoryPipeDocHandoffService repositoryPipeDocHandoffService;
-
     public StreamObserver<UploadPipeDocStreamRequest> open(
             StreamObserver<UploadPipeDocStreamResponse> responseObserver) {
         StreamingPipeDocObserver observer = new StreamingPipeDocObserver(
                 responseObserver,
                 configResolutionService,
-                pipeDocAcceptanceService,
-                repositoryPipeDocHandoffService::persistAndHandoff);
+                pipeDocAcceptanceService);
         observer.requestNext();
         return observer;
     }

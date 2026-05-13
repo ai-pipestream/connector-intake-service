@@ -9,9 +9,23 @@ import jakarta.enterprise.inject.Produces;
  * Provides a default ChunkSizeCalculator bean when the pipestream-server
  * dependency does not expose it as a CDI bean.
  */
+/**
+ * Provides a default ChunkSizeCalculator bean when the pipestream-server
+ * dependency does not expose it as a CDI bean.
+ */
 @ApplicationScoped
 public class ChunkSizeCalculatorProducer {
 
+    /**
+     * Default constructor for CDI proxying.
+     */
+    public ChunkSizeCalculatorProducer() {}
+
+    /**
+     * Produces a default ChunkSizeCalculator instance.
+     *
+     * @return A new ChunkSizeCalculator instance
+     */
     @Produces
     @DefaultBean
     public ChunkSizeCalculator chunkSizeCalculator() {

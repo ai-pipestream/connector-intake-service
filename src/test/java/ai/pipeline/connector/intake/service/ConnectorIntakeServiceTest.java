@@ -7,7 +7,7 @@ import ai.pipestream.connector.intake.v1.UploadBlobResponse;
 import ai.pipestream.connector.intake.v1.UploadPipeDocRequest;
 import ai.pipestream.connector.intake.v1.UploadPipeDocResponse;
 import ai.pipestream.data.v1.PipeDoc;
-import ai.pipestream.test.support.ConnectorIntakeWireMockTestResource;
+import ai.pipeline.connector.intake.mock.ConnectorIntakeMockEngineTestResource;
 import com.google.protobuf.ByteString;
 import io.grpc.stub.StreamObserver;
 import io.quarkus.test.common.QuarkusTestResource;
@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Uses wiremock server as a normal gRPC service (no WireMock dependency).
  */
 @QuarkusTest
-@QuarkusTestResource(ConnectorIntakeWireMockTestResource.class)
+@QuarkusTestResource(ConnectorIntakeMockEngineTestResource.class)
 class ConnectorIntakeServiceTest {
 
     @Inject

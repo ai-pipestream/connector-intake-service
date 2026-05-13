@@ -17,6 +17,24 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
+/**
+ * Per-doc acceptance for the gRPC upload paths
+ * ({@link ai.pipeline.connector.intake.pipedoc.streaming.StreamingPipeDocObserver bidi}
+ * and {@link UnaryPipeDocUploadService unary}). Two responsibilities:
+ *
+ * <ol>
+ *   <li><b>Always</b> enqueue the inline document to the
+ *       {@code pipestream:intake:ingress} Redis stream. The kafka-sidecar
+ *       drains that stream and hands off to the engine via bidi
+ *       {@code intakeHandoffStream}. Intake never calls the engine
+ *       directly on this path.</li>
+ *   <li><b>If {@code resolved.shouldPersist()} is true</b>: schedule a
+ *       fire-and-forget durable copy via {@link IntakeReplayPersister}.
+ *       Runs on its own VT executor; failure logs but does not block,
+ *       fail, or delay the engine handoff. Used for replay; not currently
+ *       on any read path.</li>
+ * </ol>
+ */
 @ApplicationScoped
 public class PipeDocAcceptanceService {
 
@@ -28,11 +46,26 @@ public class PipeDocAcceptanceService {
     @Inject
     IntakeIngressProducer intakeIngressProducer;
 
-    public UploadPipeDocResponse enqueueInline(PipeDoc pipeDoc,
-                                               ConfigResolutionService.ResolvedConfig resolved,
-                                               String crawlId,
-                                               long startTime) {
-        LOG.debugf("Skipping persistence, enqueueing inline engine ingress: doc_id=%s", pipeDoc.getDocId());
+    @Inject
+    IntakeReplayPersister replayPersister;
+
+    /**
+     * Enqueue a fully-hydrated document onto the Redis ingress stream and
+     * (optionally, async) trigger a replay-copy persist. The engine is NOT
+     * called from here — the kafka-sidecar drains the stream and does that.
+     */
+    public UploadPipeDocResponse enqueueAndMaybePersist(
+            PipeDoc pipeDoc,
+            ConfigResolutionService.ResolvedConfig resolved,
+            String crawlId,
+            long startTime) {
+
+        // Optional replay-copy persist. Fire-and-forget; no gating of engine path.
+        if (resolved.shouldPersist()) {
+            replayPersister.persistAsync(pipeDoc,
+                    resolved.tier1Config().getAccountId(),
+                    resolved.tier1Config().getDatasourceId());
+        }
 
         var ingestionConfig = resolved.withIngressMode(IngressMode.INGRESS_MODE_GRPC_INLINE);
         var request = EngineClient.buildHandoffRequest(
@@ -45,8 +78,8 @@ public class PipeDocAcceptanceService {
         IntakeIngressProducer.EnqueueResult enqueueResult =
                 intakeIngressProducer.enqueue(request, pipeDoc.getDocId());
         long totalTime = System.nanoTime() - startTime;
-        LOG.debugf("uploadPipeDoc: accepted into Redis ingress in %.3f ms (message_id=%s)",
-                totalTime / 1_000_000.0, enqueueResult.messageId());
+        LOG.debugf("uploadPipeDoc: accepted into Redis ingress in %.3f ms (message_id=%s, persist=%s)",
+                totalTime / 1_000_000.0, enqueueResult.messageId(), resolved.shouldPersist());
 
         return UploadPipeDocResponse.newBuilder()
                 .setSuccess(true)
@@ -58,8 +91,7 @@ public class PipeDocAcceptanceService {
     public UploadPipeDocStreamResponse acceptStreamingItem(
             PipeDocItem item,
             StreamContext ctx,
-            ConfigResolutionService.ResolvedConfig resolved,
-            PersistedPipeDocHandler persistedPipeDocHandler) {
+            ConfigResolutionService.ResolvedConfig resolved) {
 
         PipeDoc originalPipeDoc = item.getPipeDoc();
         PipeDocIdDeriver.DocIdDerivationResult derivation = docIdDeriver.derive(
@@ -93,9 +125,7 @@ public class PipeDocAcceptanceService {
         long startTime = System.nanoTime();
         String crawlId = ctx.getCrawlId();
         try {
-            UploadPipeDocResponse unaryResp = resolved.shouldPersist()
-                    ? persistedPipeDocHandler.persistAndHandoff(pipeDoc, resolved, startTime, crawlId)
-                    : enqueueInline(pipeDoc, resolved, crawlId, startTime);
+            UploadPipeDocResponse unaryResp = enqueueAndMaybePersist(pipeDoc, resolved, crawlId, startTime);
 
             return UploadPipeDocStreamResponse.newBuilder()
                     .setSuccess(unaryResp.getSuccess())

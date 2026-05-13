@@ -37,6 +37,13 @@ public class ConfigResolutionService {
      */
     public ConfigResolutionService() {}
 
+    /**
+     * Resolve Tier 1 configuration for a datasource using its ID and API key.
+     *
+     * @param datasourceId The unique identifier of the datasource
+     * @param apiKey The API key for authentication
+     * @return Resolved configuration containing Tier 1 settings
+     */
     public ResolvedConfig resolveConfig(String datasourceId, String apiKey) {
         LOG.debugf("Resolving Tier 1 config for datasource: %s", datasourceId);
         DataSourceConfig tier1Config = validationService.validateDataSource(datasourceId, apiKey);
@@ -79,6 +86,9 @@ public class ConfigResolutionService {
      * Resolved configuration containing Tier 1 config and base IngestionConfig.
      * <p>
      * Note: This is Tier 1 only. Engine merges Tier 2 during IntakeHandoff.
+     *
+     * @param tier1Config The raw Tier 1 configuration from datasource-admin
+     * @param ingestionConfig The base ingestion configuration built from Tier 1 settings
      */
     public record ResolvedConfig(
         DataSourceConfig tier1Config,
@@ -88,6 +98,8 @@ public class ConfigResolutionService {
          * Check if persistence is enabled for gRPC PipeDoc uploads.
          * <p>
          * This is a Tier 1 setting from datasource-admin.
+         *
+         * @return true if PipeDoc persistence is enabled, false otherwise
          */
         public boolean shouldPersist() {
             if (tier1Config.hasGlobalConfig() &&
@@ -107,6 +119,9 @@ public class ConfigResolutionService {
 
         /**
          * Get a copy of ingestionConfig with the specified ingress mode.
+         *
+         * @param mode The ingress mode to set (e.g., GRPC, BLOB)
+         * @return A new IngestionConfig instance with the updated mode
          */
         public IngestionConfig withIngressMode(IngressMode mode) {
             return ingestionConfig.toBuilder()

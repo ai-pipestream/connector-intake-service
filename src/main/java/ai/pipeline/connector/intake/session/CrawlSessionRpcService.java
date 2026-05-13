@@ -14,6 +14,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
+/**
+ * RPC service for managing crawl session lifecycle and heartbeats.
+ */
 @ApplicationScoped
 public class CrawlSessionRpcService {
 
@@ -25,6 +28,17 @@ public class CrawlSessionRpcService {
     @Inject
     SessionManager sessionManager;
 
+    /**
+     * Default constructor for CDI proxying.
+     */
+    public CrawlSessionRpcService() {}
+
+    /**
+     * Starts a new crawl session.
+     *
+     * @param request The request to start a new session
+     * @param responseObserver Stream observer for the response
+     */
     public void startCrawlSession(StartCrawlSessionRequest request,
                                   StreamObserver<StartCrawlSessionResponse> responseObserver) {
         try {
@@ -35,6 +49,12 @@ public class CrawlSessionRpcService {
         }
     }
 
+    /**
+     * Ends an existing crawl session.
+     *
+     * @param request The request to end the session
+     * @param responseObserver Stream observer for the response
+     */
     public void endCrawlSession(EndCrawlSessionRequest request,
                                 StreamObserver<EndCrawlSessionResponse> responseObserver) {
         try {
@@ -45,6 +65,12 @@ public class CrawlSessionRpcService {
         }
     }
 
+    /**
+     * Sends a heartbeat to keep a crawl session alive.
+     *
+     * @param request The heartbeat request
+     * @param responseObserver Stream observer for the response
+     */
     public void heartbeat(HeartbeatRequest request,
                           StreamObserver<HeartbeatResponse> responseObserver) {
         try {

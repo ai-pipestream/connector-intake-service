@@ -23,9 +23,6 @@ public class UnaryPipeDocUploadService {
     @Inject
     PipeDocAcceptanceService pipeDocAcceptanceService;
 
-    @Inject
-    RepositoryPipeDocHandoffService repositoryPipeDocHandoffService;
-
     public void uploadPipeDoc(UploadPipeDocRequest request,
                               StreamObserver<UploadPipeDocResponse> responseObserver) {
         try {
@@ -96,11 +93,12 @@ public class UnaryPipeDocUploadService {
 
             PipeDoc acceptedDoc = draft.buildForHandoff(resolved);
             String crawlId = request.getCrawlId();
-            if (resolved.shouldPersist()) {
-                return repositoryPipeDocHandoffService.persistAndHandoff(
-                        acceptedDoc, resolved, startTime, crawlId);
-            }
-            return pipeDocAcceptanceService.enqueueInline(acceptedDoc, resolved, crawlId, startTime);
+            // Single path: always enqueue to Redis. The replay-copy persist
+            // (if shouldPersist=true) fires async inside enqueueAndMaybePersist.
+            // Engine handoff happens later via the kafka-sidecar drain — never
+            // from this service.
+            return pipeDocAcceptanceService.enqueueAndMaybePersist(
+                    acceptedDoc, resolved, crawlId, startTime);
         } catch (RuntimeException e) {
             long totalTime = System.nanoTime() - startTime;
             LOG.errorf(e, "Failed to upload PipeDoc after %.3f ms", totalTime / 1_000_000.0);
