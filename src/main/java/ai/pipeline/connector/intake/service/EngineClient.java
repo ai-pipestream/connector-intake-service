@@ -5,21 +5,36 @@ import ai.pipestream.data.v1.IngestionConfig;
 import ai.pipestream.data.v1.PipeDoc;
 import ai.pipestream.data.v1.PipeStream;
 import ai.pipestream.data.v1.StreamMetadata;
+import ai.pipestream.engine.v1.EngineV1ServiceGrpc;
 import ai.pipestream.engine.v1.IntakeHandoffRequest;
 import ai.pipestream.engine.v1.IntakeHandoffResponse;
 import com.google.protobuf.Timestamp;
+import io.grpc.Channel;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
+import io.grpc.stub.StreamObserver;
+import io.quarkus.grpc.GrpcClient;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.UUID;
 
 /**
- * Client for engine service integration. Every call goes through
- * {@link IntakeHandoffStreamClient}'s long-lived bidi stream — no per-call
- * unary RPC, no Quarkus {@code BlockingServerInterceptor.VirtualReplayListener}
- * race surface on the hot path.
+ * Builds engine intake handoff requests and sends them over the configured
+ * engine transport.
+ *
+ * <p>The normal path uses {@link IntakeHandoffStreamClient}'s long-lived bidi
+ * stream, which avoids the per-call unary listener allocation pattern that was
+ * observed to drop requests under load. The legacy unary RPC remains available
+ * only for compatibility deployments where inline PipeDoc uploads must talk to
+ * an older engine.
  */
 @ApplicationScoped
 public class EngineClient {
@@ -29,19 +44,26 @@ public class EngineClient {
     @Inject
     IntakeHandoffStreamClient intakeStreamClient;
 
+    @GrpcClient("engine")
+    Channel engineChannel;
+
+    @ConfigProperty(name = "pipestream.intake.engine.handoff-unary-timeout-ms", defaultValue = "120000")
+    long unaryTimeoutMs;
+
     /**
      * Default constructor for CDI proxying.
      */
     public EngineClient() {}
 
     /**
-     * Hands off a document to the engine without a crawl ID.
+     * Hands off an inline document through the streaming engine path without a
+     * crawl ID.
      *
-     * @param pipeDoc The document to hand off
-     * @param datasourceId The identifier of the datasource
-     * @param accountId The identifier of the account
-     * @param ingestionConfig The ingestion configuration
-     * @return The engine's response to the handoff request
+     * @param pipeDoc document to hand off
+     * @param datasourceId datasource that owns the document
+     * @param accountId account that owns the datasource
+     * @param ingestionConfig Tier 1 ingestion configuration stamped by intake
+     * @return engine admission response
      */
     public IntakeHandoffResponse handoffToEngine(
             PipeDoc pipeDoc,
@@ -52,14 +74,14 @@ public class EngineClient {
     }
 
     /**
-     * Hands off a document to the engine with an optional crawl ID.
+     * Hands off an inline document through the streaming engine path.
      *
-     * @param pipeDoc The document to hand off
-     * @param datasourceId The identifier of the datasource
-     * @param accountId The identifier of the account
-     * @param ingestionConfig The ingestion configuration
-     * @param crawlId The identifier of the crawl session (optional)
-     * @return The engine's response to the handoff request
+     * @param pipeDoc document to hand off
+     * @param datasourceId datasource that owns the document
+     * @param accountId account that owns the datasource
+     * @param ingestionConfig Tier 1 ingestion configuration stamped by intake
+     * @param crawlId optional crawl session identifier
+     * @return engine admission response
      */
     public IntakeHandoffResponse handoffToEngine(
             PipeDoc pipeDoc,
@@ -81,7 +103,41 @@ public class EngineClient {
     }
 
     /**
-     * Hands off a document reference to the engine without a crawl ID.
+     * Hands off an inline document to the engine through the legacy unary RPC.
+     *
+     * <p>This is intended for compatibility deployments where inline gRPC
+     * PipeDoc uploads should bypass Redis ingress and the target engine still
+     * expects {@code EngineV1Service/IntakeHandoff}.
+     *
+     * @param pipeDoc document to hand off
+     * @param datasourceId datasource that owns the document
+     * @param accountId account that owns the datasource
+     * @param ingestionConfig Tier 1 ingestion configuration stamped by intake
+     * @param crawlId optional crawl session identifier
+     * @return engine admission response
+     */
+    public IntakeHandoffResponse handoffToEngineUnary(
+            PipeDoc pipeDoc,
+            String datasourceId,
+            String accountId,
+            IngestionConfig ingestionConfig,
+            String crawlId) {
+        IntakeHandoffRequest request = buildHandoffRequest(pipeDoc, datasourceId, accountId,
+                ingestionConfig, crawlId);
+        IntakeHandoffResponse response = intakeHandoffUnary(request);
+        if (response.getAccepted()) {
+            LOG.debugf("Engine unary accepted document: doc_id=%s, stream_id=%s, entry_node=%s",
+                    pipeDoc.getDocId(), response.getAssignedStreamId(), response.getEntryNodeId());
+        } else {
+            LOG.warnf("Engine unary rejected document: doc_id=%s, message=%s",
+                    pipeDoc.getDocId(), response.getMessage());
+        }
+        return response;
+    }
+
+    /**
+     * Hands off a repository-staged document reference to engine without a
+     * crawl ID.
      *
      * @param docId The Pipestream internal document identifier
      * @param sourceNodeId The identifier of the source node
@@ -100,7 +156,7 @@ public class EngineClient {
     }
 
     /**
-     * Hands off a document reference to the engine with an optional crawl ID.
+     * Hands off a repository-staged document reference to engine.
      *
      * @param docId The Pipestream internal document identifier
      * @param sourceNodeId The identifier of the source node
@@ -151,6 +207,57 @@ public class EngineClient {
      */
     public IntakeHandoffResponse intakeHandoff(IntakeHandoffRequest request) {
         return intakeStreamClient.intakeHandoff(request);
+    }
+
+    /**
+     * Sends one already-built intake handoff request over the legacy unary
+     * engine RPC.
+     */
+    public IntakeHandoffResponse intakeHandoffUnary(IntakeHandoffRequest request) {
+        CompletableFuture<IntakeHandoffResponse> future = new CompletableFuture<>();
+        EngineV1ServiceGrpc.newStub(engineChannel).intakeHandoff(request, new StreamObserver<>() {
+            @Override
+            public void onNext(IntakeHandoffResponse value) {
+                future.complete(value);
+            }
+
+            @Override
+            public void onError(Throwable t) {
+                future.completeExceptionally(t);
+            }
+
+            @Override
+            public void onCompleted() {
+                // unary response is completed in onNext
+            }
+        });
+        return awaitUnary(future);
+    }
+
+    private IntakeHandoffResponse awaitUnary(CompletableFuture<IntakeHandoffResponse> future) {
+        try {
+            return future.get(unaryTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            throw Status.DEADLINE_EXCEEDED
+                    .withDescription("engine unary intake handoff exceeded " + unaryTimeoutMs + "ms")
+                    .withCause(e)
+                    .asRuntimeException();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw Status.CANCELLED
+                    .withDescription("engine unary intake handoff interrupted")
+                    .withCause(e)
+                    .asRuntimeException();
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof StatusRuntimeException sre) {
+                throw sre;
+            }
+            throw Status.UNKNOWN
+                    .withDescription("engine unary intake handoff failed: " + cause.getMessage())
+                    .withCause(cause)
+                    .asRuntimeException();
+        }
     }
 
     /**

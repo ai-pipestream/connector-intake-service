@@ -9,6 +9,14 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
+/**
+ * Handles the unary {@code UploadPipeDoc} RPC.
+ *
+ * <p>This service owns request-level validation, deterministic document-id
+ * derivation, Tier 1 config resolution, and ownership stamping. Once the
+ * document is ready for admission it delegates to {@link PipeDocAcceptanceService},
+ * which selects the actual inline handoff path.
+ */
 @ApplicationScoped
 public class UnaryPipeDocUploadService {
 
@@ -23,6 +31,10 @@ public class UnaryPipeDocUploadService {
     @Inject
     PipeDocAcceptanceService pipeDocAcceptanceService;
 
+    /**
+     * Executes one unary upload request and translates ordinary validation or
+     * downstream failures into the response object expected by the public RPC.
+     */
     public void uploadPipeDoc(UploadPipeDocRequest request,
                               StreamObserver<UploadPipeDocResponse> responseObserver) {
         try {
@@ -93,10 +105,9 @@ public class UnaryPipeDocUploadService {
 
             PipeDoc acceptedDoc = draft.buildForHandoff(resolved);
             String crawlId = request.getCrawlId();
-            // Single path: always enqueue to Redis. The replay-copy persist
-            // (if shouldPersist=true) fires async inside enqueueAndMaybePersist.
-            // Engine handoff happens later via the kafka-sidecar drain — never
-            // from this service.
+            // Inline handoff is selected inside enqueueAndMaybePersist.
+            // The default path enqueues to Redis; compatibility modes can
+            // hand off directly to engine.
             return pipeDocAcceptanceService.enqueueAndMaybePersist(
                     acceptedDoc, resolved, crawlId, startTime);
         } catch (RuntimeException e) {

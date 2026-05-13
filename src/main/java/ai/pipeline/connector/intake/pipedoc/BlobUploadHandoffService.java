@@ -33,15 +33,15 @@ import java.util.concurrent.ExecutionException;
  * long-lived stream — same as every other intake-to-engine call. No unary.
  *
  * <p>Used only by {@code GrpcBlobUploadService}. Not on the gRPC PipeDoc
- * upload path (that path always-enqueues to Redis via
- * {@link PipeDocAcceptanceService}). Not on the POST upload path
- * (that path uses {@code RepositoryUploadClient} directly).
+ * upload path (that path is selected by {@link PipeDocAcceptanceService}).
+ * Not on the POST upload path (that path uses {@code RepositoryUploadClient}
+ * directly).
  *
  * <p>Renamed from {@code RepositoryPipeDocHandoffService} during the
  * intake-as-wall refactor: the {@code persistAndHandoff(PipeDoc, ...)}
- * variant was deleted because PipeDoc uploads now flow through Redis
- * and the kafka-sidecar drain handles engine handoff. Only the blob
- * variant remains, hence the new class name.
+ * variant was deleted because the normal PipeDoc upload path now flows
+ * through Redis and the kafka-sidecar drain handles engine handoff. Only
+ * the blob variant remains, hence the new class name.
  */
 @ApplicationScoped
 public class BlobUploadHandoffService {

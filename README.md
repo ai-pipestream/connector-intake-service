@@ -7,7 +7,7 @@ Intake is deliberately **graph-agnostic** -- it handles Tier 1 (service-level) c
 ## How It Fits in the Pipeline
 
 ```
-Connector  --(gRPC/HTTP)--> connector-intake-service --(gRPC)--> engine
+Connector  --(gRPC/HTTP)--> connector-intake-service --(Redis/gRPC)--> engine
                                     |
                                     +--(gRPC)--> repository-service  (optional persist)
                                     +--(gRPC)--> connector-admin     (API key validation)
@@ -17,9 +17,9 @@ Connector  --(gRPC/HTTP)--> connector-intake-service --(gRPC)--> engine
 1. Connector sends a document (via gRPC `UploadPipeDoc`, gRPC `UploadBlob`, or HTTP `POST /uploads/raw`).
 2. Intake validates `datasource_id` + `api_key` by calling `connector-admin` (datasource-admin) and `account-manager`.
 3. Intake derives a deterministic `doc_id` from one of: client-provided ID, `source_doc_id`, `source_uri`, or `source_path`.
-4. Based on Tier 1 config, either:
-   - **Persist path**: Save to repository-service, then hand off a document reference to the engine.
-   - **Inline path**: Hand off the full document directly to the engine.
+4. Based on upload type and configuration, either:
+   - **Repository path**: Save to repository-service, then hand off a document reference to the engine.
+   - **Inline path**: Queue the full document through Redis by default, or hand it directly to engine in compatibility mode.
 5. Intake also manages **crawl sessions** -- connectors can start/end sessions and send heartbeats, with session state tracked in PostgreSQL.
 
 ## gRPC API
@@ -67,7 +67,7 @@ If none are available, the request is rejected.
 | Class | Role |
 |-------|------|
 | `ConnectorIntakeServiceImpl` | gRPC service implementation. Entry point for all gRPC calls. |
-| `EngineClient` | Wraps documents in `PipeStream` and calls the engine's `IntakeHandoff` RPC. |
+| `EngineClient` | Wraps documents in `PipeStream` and calls engine through unary compatibility handoff or the streaming handoff client. |
 | `ConfigResolutionService` | Validates API key via `ConnectorValidationService`, returns Tier 1 config. |
 | `ConnectorValidationService` | Calls `connector-admin` to validate API keys, calls `account-manager` to check account is active. Results are cached. |
 | `SessionManager` | CRUD for crawl sessions in PostgreSQL. |
@@ -83,6 +83,14 @@ If none are available, the request is rejected.
 | `connector-intake.max-concurrent-streams` | `100` | Max concurrent gRPC streams |
 | `connector-intake.session-timeout-minutes` | `60` | Crawl session timeout |
 | `connector-intake.max-document-size-mb` | `10240` | Max document size (10 GB) |
+| `pipestream.intake.inline-handoff-mode` | `redis` | Inline `PipeDoc` handoff mode: `redis`, `engine-unary`, or `engine-stream` |
+| `pipestream.intake.engine.handoff-unary-timeout-ms` | `120000` | Timeout for the legacy unary engine handoff path |
+
+For older engine deployments that expect `EngineV1Service/IntakeHandoff`, set:
+
+```bash
+PIPESTREAM_INTAKE_INLINE_HANDOFF_MODE=engine-unary
+```
 
 ### Service Discovery
 

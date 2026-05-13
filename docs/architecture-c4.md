@@ -30,8 +30,8 @@ C4Context
     Rel(intake, connectorAdmin, "Validate datasource API key; fetch Tier 1 config", "gRPC")
     Rel(intake, accountManager, "Validate account active status", "gRPC")
     Rel(intake, repository, "Persist raw uploads, blob uploads, replay copies", "HTTP / gRPC")
-    Rel(intake, redis, "XADD accepted inline PipeDocs", "Redis Streams")
-    Rel(intake, engine, "Handoff persisted references and repository events", "gRPC bidi stream")
+    Rel(intake, redis, "XADD accepted inline PipeDocs by default", "Redis Streams")
+    Rel(intake, engine, "Handoff persisted references, repository events, and compatibility inline PipeDocs", "gRPC")
     Rel(kafka, intake, "Persisted repository intake events", "Kafka")
     Rel(intake, postgres, "Create/update crawl sessions and document status", "JDBC")
     Rel(intake, consul, "Resolve platform service endpoints", "Stork / Consul")
@@ -53,7 +53,7 @@ C4Container
         Container(sessionServices, "Crawl Session Services", "Java / CDI / Panache", "Starts, ends, heartbeats, and tracks crawl sessions.")
         Container(repoEventConsumer, "Repository Event Consumer", "SmallRye Messaging / Kafka", "Receives repository intake events and hands persisted references to engine.")
         Container(redisProducer, "Redis Ingress Producer", "Quarkus Redis", "Serializes engine handoff requests into Redis Stream fields.")
-        Container(engineClient, "Engine Handoff Client", "gRPC bidi client", "Maintains long-lived intakeHandoffStream to engine and maps acks/errors.")
+        Container(engineClient, "Engine Handoff Client", "gRPC client", "Calls engine by unary compatibility RPC or long-lived intakeHandoffStream.")
         Container(validationClient, "Validation Clients", "gRPC clients", "Calls datasource-admin and account-manager.")
         Container(repositoryClient, "Repository Clients", "HTTP REST client / gRPC clients", "Streams raw bodies and persists PipeDocs/blob documents.")
     }
@@ -104,7 +104,7 @@ C4Component
         Component(streamingObserver, "StreamingPipeDocObserver", "Stream observer", "Serializes stream messages, handles flow control/cancellation, validates context-before-items.")
         Component(blobUpload, "GrpcBlobUploadService", "Application service", "Builds PipeDoc from UploadBlobRequest bytes and metadata.")
         Component(rawUpload, "RawUploadResource", "HTTP resource", "Validates raw upload headers and streams body to repository-service.")
-        Component(acceptance, "PipeDocAcceptanceService", "Application service", "Queues inline PipeDocs to Redis and optionally schedules replay persistence.")
+        Component(acceptance, "PipeDocAcceptanceService", "Application service", "Routes inline PipeDocs to Redis by default, or direct engine compatibility handoff, and optionally schedules replay persistence.")
         Component(blobHandoff, "BlobUploadHandoffService", "Application service", "Persists blob PipeDoc to repository and hands off document reference to engine.")
         Component(replayPersister, "IntakeReplayPersister", "Background worker", "Fire-and-forget durable replay copy for persisted gRPC PipeDocs.")
         Component(docIdDeriver, "PipeDocIdDeriver", "Domain helper", "Derives deterministic doc IDs from client doc_id, source_doc_id, source_uri, or source_path.")
@@ -185,6 +185,8 @@ flowchart TD
     F --> G[repository-service replay copy]
     E --> H[engine sidecar drains Redis ingress]
     H --> I[engine intakeHandoffStream]
+    D -. compatibility modes .-> J[EngineClient direct handoff]
+    J --> K[engine IntakeHandoff or IntakeHandoffStream]
 ```
 
 ```mermaid

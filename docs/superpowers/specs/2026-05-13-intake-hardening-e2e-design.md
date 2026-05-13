@@ -63,7 +63,7 @@ Keep the service boundaries already implied by the refactor:
 - `ConnectorIntakeServiceImpl` remains a thin gRPC adapter.
 - `UnaryPipeDocUploadService` validates and derives doc identity for unary PipeDoc uploads.
 - `StreamingPipeDocObserver` serializes inbound stream events through its mailbox and delegates accepted items to `PipeDocAcceptanceService`.
-- `PipeDocAcceptanceService` always enqueues hydrated gRPC PipeDocs to Redis ingress, and optionally schedules replay persistence.
+- `PipeDocAcceptanceService` routes hydrated gRPC PipeDocs to Redis ingress by default, supports explicit direct-engine compatibility modes, and optionally schedules replay persistence.
 - `GrpcBlobUploadService` builds a PipeDoc around raw blob bytes.
 - `BlobUploadHandoffService` persists gRPC blob uploads to repository-service, then hands off a reference to engine through `EngineClient`.
 - `RawUploadResource` remains a blocking virtual-thread HTTP proxy to repository-service for large raw uploads.
@@ -129,8 +129,8 @@ Unit/component tests:
 
 Quarkus integration tests:
 
-- unary PipeDoc accepts and enqueues to fake Redis producer
-- streaming PipeDoc accepts and enqueues to fake Redis producer
+- unary PipeDoc accepts through the configured inline handoff mode
+- streaming PipeDoc accepts through the configured inline handoff mode
 - gRPC blob upload uses fake repository and fake engine stream
 - raw HTTP upload proxies to fake repository HTTP server
 - auth failures remain explicit and do not touch downstream systems

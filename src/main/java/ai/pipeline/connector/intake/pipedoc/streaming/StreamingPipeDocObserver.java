@@ -12,6 +12,16 @@ import org.jboss.logging.Logger;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 
+/**
+ * Serializes one bidi {@code UploadPipeDocStream} call onto a small mailbox.
+ *
+ * <p>The gRPC transport can deliver cancellation, request messages, and
+ * completion callbacks from different threads. This observer turns those events
+ * into one ordered stream processed by a virtual-thread worker, so context
+ * validation, per-item admission, and response writes happen in a predictable
+ * sequence. Manual inbound flow control keeps at most a small number of
+ * unprocessed stream events in memory.
+ */
 public class StreamingPipeDocObserver implements StreamObserver<UploadPipeDocStreamRequest> {
 
     private static final Logger LOG = Logger.getLogger(StreamingPipeDocObserver.class);

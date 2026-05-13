@@ -9,12 +9,15 @@ import ai.pipestream.connector.intake.v1.StreamContext;
 import ai.pipestream.connector.intake.v1.UploadPipeDocResponse;
 import ai.pipestream.connector.intake.v1.UploadPipeDocStreamResponse;
 import ai.pipestream.data.v1.IngressMode;
+import ai.pipestream.data.v1.IngestionConfig;
 import ai.pipestream.data.v1.OwnershipContext;
 import ai.pipestream.data.v1.PipeDoc;
+import ai.pipestream.engine.v1.IntakeHandoffResponse;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.jboss.logging.Logger;
 
 /**
@@ -23,11 +26,10 @@ import org.jboss.logging.Logger;
  * and {@link UnaryPipeDocUploadService unary}). Two responsibilities:
  *
  * <ol>
- *   <li><b>Always</b> enqueue the inline document to the
- *       {@code pipestream:intake:ingress} Redis stream. The kafka-sidecar
- *       drains that stream and hands off to the engine via bidi
- *       {@code intakeHandoffStream}. Intake never calls the engine
- *       directly on this path.</li>
+ *   <li>Route inline documents according to
+ *       {@code pipestream.intake.inline-handoff-mode}. The default
+ *       {@code redis} mode enqueues to {@code pipestream:intake:ingress};
+ *       compatibility modes can call the engine directly.</li>
  *   <li><b>If {@code resolved.shouldPersist()} is true</b>: schedule a
  *       fire-and-forget durable copy via {@link IntakeReplayPersister}.
  *       Runs on its own VT executor; failure logs but does not block,
@@ -49,10 +51,25 @@ public class PipeDocAcceptanceService {
     @Inject
     IntakeReplayPersister replayPersister;
 
+    @Inject
+    EngineClient engineClient;
+
+    @ConfigProperty(name = "pipestream.intake.inline-handoff-mode", defaultValue = "redis")
+    String inlineHandoffMode;
+
     /**
-     * Enqueue a fully-hydrated document onto the Redis ingress stream and
-     * (optionally, async) trigger a replay-copy persist. The engine is NOT
-     * called from here — the kafka-sidecar drains the stream and does that.
+     * Accepts a fully-hydrated inline PipeDoc into the configured handoff path.
+     *
+     * <p>Redis mode writes an {@link ai.pipestream.engine.v1.IntakeHandoffRequest}
+     * to the intake ingress stream for the sidecar to drain. Compatibility modes
+     * call engine directly. In all modes, replay persistence is optional,
+     * asynchronous, and not part of the admission decision.
+     *
+     * @param pipeDoc document after doc-id derivation and ownership stamping
+     * @param resolved datasource/account configuration for this request
+     * @param crawlId optional crawl session identifier
+     * @param startTime start time from the transport handler, used for timing logs
+     * @return upload response for the connector-facing API
      */
     public UploadPipeDocResponse enqueueAndMaybePersist(
             PipeDoc pipeDoc,
@@ -75,6 +92,19 @@ public class PipeDocAcceptanceService {
                 ingestionConfig,
                 crawlId);
 
+        String mode = inlineHandoffMode == null ? "redis" : inlineHandoffMode.trim().toLowerCase();
+        if ("engine-unary".equals(mode)) {
+            return handoffInlineToEngineUnary(pipeDoc, resolved, ingestionConfig, crawlId, startTime);
+        }
+        if ("engine-stream".equals(mode)) {
+            return handoffInlineToEngineStream(pipeDoc, resolved, ingestionConfig, crawlId, startTime);
+        }
+        if (!"redis".equals(mode)) {
+            throw Status.FAILED_PRECONDITION
+                    .withDescription("Unsupported pipestream.intake.inline-handoff-mode: " + inlineHandoffMode)
+                    .asRuntimeException();
+        }
+
         IntakeIngressProducer.EnqueueResult enqueueResult =
                 intakeIngressProducer.enqueue(request, pipeDoc.getDocId());
         long totalTime = System.nanoTime() - startTime;
@@ -85,6 +115,60 @@ public class PipeDocAcceptanceService {
                 .setSuccess(true)
                 .setDocId(pipeDoc.getDocId())
                 .setMessage("Document accepted by intake; engine ingress queued")
+                .build();
+    }
+
+    private UploadPipeDocResponse handoffInlineToEngineUnary(
+            PipeDoc pipeDoc,
+            ConfigResolutionService.ResolvedConfig resolved,
+            IngestionConfig ingestionConfig,
+            String crawlId,
+            long startTime) {
+        var response = engineClient.handoffToEngineUnary(
+                pipeDoc,
+                resolved.tier1Config().getDatasourceId(),
+                resolved.tier1Config().getAccountId(),
+                ingestionConfig,
+                crawlId);
+        return mapEngineResponse("engine unary", pipeDoc.getDocId(), response, startTime);
+    }
+
+    private UploadPipeDocResponse handoffInlineToEngineStream(
+            PipeDoc pipeDoc,
+            ConfigResolutionService.ResolvedConfig resolved,
+            IngestionConfig ingestionConfig,
+            String crawlId,
+            long startTime) {
+        var response = engineClient.handoffToEngine(
+                pipeDoc,
+                resolved.tier1Config().getDatasourceId(),
+                resolved.tier1Config().getAccountId(),
+                ingestionConfig,
+                crawlId);
+        return mapEngineResponse("engine stream", pipeDoc.getDocId(), response, startTime);
+    }
+
+    private UploadPipeDocResponse mapEngineResponse(
+            String path,
+            String docId,
+            IntakeHandoffResponse handoffResponse,
+            long startTime) {
+        long totalTime = System.nanoTime() - startTime;
+        LOG.debugf("uploadPipeDoc: %s handoff completed in %.3f ms, accepted=%s",
+                path, totalTime / 1_000_000.0, handoffResponse.getAccepted());
+
+        if (!handoffResponse.getAccepted()) {
+            return UploadPipeDocResponse.newBuilder()
+                    .setSuccess(false)
+                    .setDocId(docId)
+                    .setMessage("Engine rejected: " + handoffResponse.getMessage())
+                    .build();
+        }
+
+        return UploadPipeDocResponse.newBuilder()
+                .setSuccess(true)
+                .setDocId(docId)
+                .setMessage("Document engine accepted via " + path)
                 .build();
     }
 
